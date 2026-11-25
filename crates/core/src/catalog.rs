@@ -130,10 +130,10 @@ impl SignedCatalog {
         validate_public_keys(keys)?;
         validate_catalog(&self.catalog)?;
 
-        let mut matching = keys.iter().filter(|key| key.key_id == self.key_id);
-        let key = matching.next()
+        let key = keys
+            .iter()
+            .find(|key| key.key_id == self.key_id)
             .with_context(|| format!("catalog key id {:?} is not pinned", self.key_id))?;
-        ensure!(matching.next().is_none(), "duplicate pinned catalog key id");
         let public_key = BASE64
             .decode(key.public_key.as_bytes())
             .context("decode catalog public key")?;
@@ -339,6 +339,14 @@ mod tests {
         catalog.key_id = "other-key".to_owned();
         let error = catalog.verify(&[key]).expect_err("reject unknown key");
         assert!(error.to_string().contains("not pinned"));
+    }
+
+    #[test]
+    fn duplicate_key_ids_and_catalog_entries_are_rejected() {
+        let (mut catalog, key) = signed();
+        assert!(catalog.verify(&[key.clone(), key.clone()]).is_err());
+        catalog.catalog.entries.push(catalog.catalog.entries[0].clone());
+        assert!(catalog.verify(&[key]).unwrap_err().to_string().contains("duplicate catalog entry"));
     }
 
     #[test]

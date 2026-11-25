@@ -133,27 +133,16 @@ impl CatalogCache {
                     current.catalog.revision
                 );
             }
-            if snapshot.catalog.revision == current.catalog.revision {
-                if snapshot.sha256 == current.sha256 {
-                    // Reconfirm a previously verified snapshot without rewriting
-                    // its signed envelope. Persist the new observation time.
-                    let current = Arc::clone(current);
-                    let directory = catalog_dir(state_dir);
-                    let pointer = CatalogPointer {
-                        revision: current.catalog.revision,
-                        sha256: current.sha256.clone(),
-                        last_sync_unix_seconds: now_unix_seconds,
-                    };
-                    secure_fs::atomic_write(&directory.join("current"), &serde_json::to_vec(&pointer)?, 0o600)?;
-                    self.last_sync = Some(now_unix_seconds);
-                    self.stale = false;
-                    return Ok(current);
-                }
+            if snapshot.catalog.revision == current.catalog.revision
+                && snapshot.sha256 != current.sha256
+            {
                 bail!(
                     "catalog revision {} has a different hash",
                     snapshot.catalog.revision
                 );
             }
+            // Even at the same revision and hash, the envelope may have
+            // been signed with a newly rotated pinned key. Refresh it below.
         }
 
         let directory = catalog_dir(state_dir);
@@ -328,8 +317,9 @@ mod tests {
     #[test]
     fn an_older_revision_is_rejected() {
         let directory = tempdir().unwrap();
-        let (newer, newer_key) = signed(2);
-        let (older, older_key) = signed(1);
+        let key_pair = Ed25519KeyPair::generate().expect("generate Ed25519 key");
+        let (newer, newer_key) = signed_with_key(2, "test", &key_pair);
+        let (older, _) = signed_with_key(1, "test", &key_pair);
         let mut cache = CatalogCache::default();
         cache
             .replace(
@@ -340,7 +330,7 @@ mod tests {
             )
             .unwrap();
         let error = cache
-            .replace(directory.path(), &older, &[older_key, newer_key], 20)
+            .replace(directory.path(), &older, &[newer_key], 20)
             .unwrap_err();
         assert!(error.to_string().contains("older"));
         assert_eq!(cache.snapshot().unwrap().catalog.revision, 2);

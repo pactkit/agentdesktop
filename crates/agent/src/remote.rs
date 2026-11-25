@@ -852,7 +852,11 @@ async fn connect(
         secure_fs::ensure_private_dir(&catalog_root)?;
         secure_fs::ensure_private_dir(&catalog_dir)?;
     }
-    let mut catalog_cache = crate::catalog::CatalogCache::load(&catalog_dir, &channels.catalog_public_keys);
+    let mut catalog_cache = if channels.catalog_public_keys.is_empty() {
+        crate::catalog::CatalogCache::default()
+    } else {
+        crate::catalog::CatalogCache::load(&catalog_dir, &channels.catalog_public_keys)
+    };
     let reconnect_at = identity
         .oauth
         .as_ref()

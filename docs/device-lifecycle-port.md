@@ -40,3 +40,13 @@ stale in memory. The catalog is not yet wired to an installer or job runtime;
 no executable is installed or run by this port. Schema generation and runtime
 conformance remain unverified. CI now covers integration pushes using standard
 GitHub-hosted Linux runners, subject to repository Actions permissions.
+
+## Validation evidence (current session)
+
+Independently ran SQLite in memory against the exact ten migration SQL blobs
+(SHA-1 verified against Git tree). Fresh initialization and upgrade from 0006
+preserved enrollment receipt/token and audit subject. Conditional lifecycle
+updates rejected duplicate/downgrade, active lookup denied revoked identity,
+and tombstones retained the receipt. Foreign-key and integrity checks passed.
+These are SQL behavior tests, not compiled Rust/SQLx/PostgreSQL or runtime tests.
+No GitHub Actions runs were returned after enabling integration push triggers.
