@@ -21,6 +21,7 @@ use agentdesktop_core::config::{
 };
 
 use crate::{
+    catalog::CatalogStore,
     daemon_config::DaemonConfigStore,
     database::Database,
     http_listener::{HttpListener, HttpListenerLimits, HttpListenerTls},
@@ -35,7 +36,7 @@ use auth::{
     authorization::{self, AccessRequest, Verb},
 };
 use handlers::{
-    api_not_found, daemon_config, delete_device, device, device_audit, device_jobs,
+    api_not_found, create_device_job, daemon_config, delete_device, device, device_audit, device_jobs,
     device_lifecycle, devices, overview, retire_device, revoke_device, settings, usage_report,
 };
 
@@ -66,6 +67,7 @@ pub struct State {
     database: Database,
     daemon_config: DaemonConfigStore,
     settings: Settings,
+    catalog: CatalogStore,
 }
 
 #[derive(Clone, Serialize)]
@@ -84,7 +86,13 @@ impl State {
             database,
             daemon_config,
             settings,
+            catalog: CatalogStore::empty(),
         }
+    }
+
+    pub fn with_catalog(mut self, catalog: CatalogStore) -> Self {
+        self.catalog = catalog;
+        self
     }
 }
 
@@ -191,7 +199,7 @@ pub fn router(
             api(get(device_lifecycle)),
         )
         .route("/api/v1/devices/{device_id}/audit", api(get(device_audit)))
-        .route("/api/v1/devices/{device_id}/jobs", api(get(device_jobs)))
+        .route("/api/v1/devices/{device_id}/jobs", api(get(device_jobs).post(create_device_job)))
         .route(
             "/api/v1/devices/{device_id}/retire",
             api(post(retire_device)),

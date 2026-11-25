@@ -263,9 +263,8 @@ fn same_request(row: &JobRecord, job: &NewJob) -> bool {
 }
 
 impl Database {
-    /// Internal persistence primitive. A future authorized caller must resolve
+    /// Internal persistence primitive. The authorized caller must resolve
     /// the requested version against the current signed catalog before calling.
-    /// No public enqueue or dispatch endpoint is enabled by this port.
     pub async fn create_job(&self, job: &NewJob) -> anyhow::Result<JobRecord> {
         let now = now_seconds()?;
         ensure!(
@@ -346,6 +345,185 @@ impl Database {
         );
         tx.commit().await?;
         Ok(row)
+    }
+
+    /// Reserve at most one job per device. Serialize all admissions against
+    /// the device row, including revocation. A lost dispatch reply expires
+    /// without retrying; a running job is never automatically replayed.
+    pub async fn claim_catalog_job(
+        &self,
+        device_id: &str,
+        catalog_id: &str,
+        revision: i64,
+        digest: &str,
+    ) -> anyhow::Result<Option<JobRecord>> {
+        let now = now_seconds()?;
+        let mut tx = self.pool().begin().await?;
+        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await?;
+        if active.rows_affected() != 1 {
+            return Ok(None);
+        }
+        // Superseded catalogs and expired reservations cannot start.
+        sqlx::query(
+            "UPDATE agent_jobs SET state = $2, updated_at = $3, error_code = 'catalog_or_deadline'
+             WHERE device_id = $1 AND state IN ($4, $5)
+             AND (deadline_unix_seconds <= $3 OR catalog_id <> $6
+                  OR catalog_revision <> $7 OR catalog_sha256 <> $8)",
+        )
+        .bind(device_id)
+        .bind(JobState::Expired.proto_value())
+        .bind(now)
+        .bind(JobState::Queued.proto_value())
+        .bind(JobState::Dispatched.proto_value())
+        .bind(catalog_id)
+        .bind(revision)
+        .bind(digest)
+        .execute(&mut *tx)
+        .await?;
+        let busy: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM agent_jobs WHERE device_id = $1 AND state IN ($2,$3,$4,$5)",
+        )
+        .bind(device_id)
+        .bind(JobState::Dispatched.proto_value())
+        .bind(JobState::Accepted.proto_value())
+        .bind(JobState::Running.proto_value())
+        .bind(JobState::CancelRequested.proto_value())
+        .fetch_one(&mut *tx)
+        .await?;
+        let row: Option<JobRecord> = if busy == 0 {
+            sqlx::query_as("SELECT * FROM agent_jobs WHERE device_id = $1 AND state = $2
+                           ORDER BY created_at,id LIMIT 1")
+                .bind(device_id)
+                .bind(JobState::Queued.proto_value())
+                .fetch_optional(&mut *tx)
+                .await?
+        } else {
+            None
+        };
+        if let Some(mut job) = row {
+            let result = sqlx::query(
+                "UPDATE agent_jobs SET state = $2, updated_at = $3
+                 WHERE id = $1 AND state = $4",
+            )
+            .bind(&job.id)
+            .bind(JobState::Dispatched.proto_value())
+            .bind(now)
+            .bind(JobState::Queued.proto_value())
+            .execute(&mut *tx)
+            .await?;
+            ensure!(result.rows_affected() == 1, "job dispatch conflict");
+            job.state = JobState::Dispatched.proto_value();
+            job.updated_at = now;
+            tx.commit().await?;
+            return Ok(Some(job));
+        }
+        tx.commit().await?;
+        Ok(None)
+    }
+
+    /// The last online authorization before any local installation side effect.
+    /// Never grant a second start for the same attempt, even if a reply was lost.
+    pub async fn authorize_catalog_job(
+        &self,
+        device_id: &str,
+        id: &str,
+        attempt: u32,
+        catalog_id: &str,
+        revision: i64,
+        digest: &str,
+    ) -> anyhow::Result<bool> {
+        let now = now_seconds()?;
+        let mut tx = self.pool().begin().await?;
+        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await?;
+        if active.rows_affected() != 1 {
+            return Ok(false);
+        }
+        let result = sqlx::query(
+            "UPDATE agent_jobs SET state = $4, updated_at = $5
+             WHERE device_id = $1 AND id = $2 AND attempt = $3
+             AND state = $6 AND deadline_unix_seconds > $5
+             AND catalog_id = $7 AND catalog_revision = $8 AND catalog_sha256 = $9",
+        )
+        .bind(device_id)
+        .bind(id)
+        .bind(i64::from(attempt))
+        .bind(JobState::Running.proto_value())
+        .bind(now)
+        .bind(JobState::Dispatched.proto_value())
+        .bind(catalog_id)
+        .bind(revision)
+        .bind(digest)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Store only a bounded terminal result. Duplicate identical reports are
+    /// acknowledged, so an endpoint can retry its durable outbox safely.
+    pub async fn report_catalog_job(
+        &self,
+        device_id: &str,
+        status: &agentdesktop_proto::fleet::JobStatus,
+    ) -> anyhow::Result<bool> {
+        let Some(state) = JobState::from_proto(status.state) else {
+            return Ok(false);
+        };
+        if !matches!(state, JobState::Succeeded | JobState::Failed) {
+            return Ok(false);
+        }
+        if status.error_code.len() > 64
+            || !status.error_code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            || (state == JobState::Succeeded && !status.error_code.is_empty())
+        {
+            return Ok(false);
+        }
+        let now = now_seconds()?;
+        let mut tx = self.pool().begin().await?;
+        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await?;
+        if active.rows_affected() != 1 {
+            return Ok(false);
+        }
+        let result = sqlx::query(
+            "UPDATE agent_jobs SET state = $4, updated_at = $5, error_code = $6
+             WHERE device_id = $1 AND id = $2 AND attempt = $3
+             AND (state = $7 OR (state = $8 AND $4 = $9))",
+        )
+        .bind(device_id)
+        .bind(&status.job_id)
+        .bind(i64::from(status.attempt))
+        .bind(state.proto_value())
+        .bind(now)
+        .bind(&status.error_code)
+        .bind(JobState::Running.proto_value())
+        .bind(JobState::Dispatched.proto_value())
+        .bind(JobState::Failed.proto_value())
+        .execute(&mut *tx)
+        .await?;
+        let acknowledged = if result.rows_affected() == 1 {
+            true
+        } else {
+            let previous: Option<(i64, String)> = sqlx::query_as(
+                "SELECT state,error_code FROM agent_jobs WHERE device_id = $1 AND id = $2 AND attempt = $3",
+            )
+            .bind(device_id)
+            .bind(&status.job_id)
+            .bind(i64::from(status.attempt))
+            .fetch_optional(&mut *tx)
+            .await?;
+            previous == Some((state.proto_value(), status.error_code.clone()))
+        };
+        tx.commit().await?;
+        Ok(acknowledged)
     }
 
     pub async fn list_device_jobs(&self, device_id: &str) -> anyhow::Result<Vec<JobSummary>> {

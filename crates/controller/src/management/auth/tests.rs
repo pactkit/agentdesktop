@@ -479,6 +479,7 @@ fn admin_read_covers_every_management_read_but_no_mutation() {
         (Verb::Update, "devices", false),
         (Verb::Read, "device-audit", false),
         (Verb::Read, "device-jobs", false),
+        (Verb::Create, "device-jobs", false),
         // Reads outside the catalog, such as an extension's policy, are not covered.
         (Verb::Read, "rbac.policy", false),
         (Verb::List, "settings", false),

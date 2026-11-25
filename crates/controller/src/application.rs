@@ -126,6 +126,7 @@ pub async fn run(
         .transpose()
         .context("initialize signed agent catalog")?
         .unwrap_or_default();
+    let admin_state = admin_state.with_catalog(catalog.clone());
     let service = FleetAgentService::new(
         Some(oidc),
         database,
