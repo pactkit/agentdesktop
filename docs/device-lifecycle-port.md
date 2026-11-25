@@ -50,3 +50,5 @@ updates rejected duplicate/downgrade, active lookup denied revoked identity,
 and tombstones retained the receipt. Foreign-key and integrity checks passed.
 These are SQL behavior tests, not compiled Rust/SQLx/PostgreSQL or runtime tests.
 No GitHub Actions runs were returned after enabling integration push triggers.
+
+Actions settings enabled by repository owner; a new integration push requests CI validation. No validation result is assumed from this push.
