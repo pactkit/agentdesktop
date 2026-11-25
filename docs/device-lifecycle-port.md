@@ -64,3 +64,15 @@ or dispatch endpoint is enabled. Old installer must not be blindly copied:
 it can replace unrelated launchers, trust unsafe receipt paths, and read an
 unbounded response before testing actual size. Repair those ownership,
 streaming, journal and scope boundaries before activating installation.
+
+## Endpoint job execution foundation
+
+The installer interface, signed artifact verification and a local executor
+are restored. The downloader enforces actual received size before appending
+chunks, rejects HTTP/userinfo and does not follow redirects. Execution
+revalidates the signed catalog, binds job fields to a durable fingerprint,
+checks platform/version/deadline and writes a Running journal before any
+installer mutation. An ambiguous interrupted job is not retried automatically.
+No dispatch RPC, local install API or platform installer is wired yet. This
+is deliberately a non-live foundation until ownership-safe installation and
+runtime tests pass. No new package dependency is needed at this stage.
