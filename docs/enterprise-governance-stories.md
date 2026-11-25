@@ -35,19 +35,50 @@ A configuration write is not proof that a client enforces policy.
   is not detected: `agentdesktop capabilities --require codex:permissions.profile_allowlist`.
   A successful preflight is not compliance evidence. Prereleases and unreviewed
   major versions are unknown; DSH capabilities remain unverified.
-- Stories 03–10: not implemented.
+- Story 03: system-only native Codex requirements delivery on Unix, separate
+  from defaults. Ownership checks, redacted dry-run and explicit retirement
+  are implemented; Windows ACL and registry support, schema generation and
+  native-client enforcement tests remain open.
+- Stories 04–10: not implemented.
 
 ## Codex policy path and authority (Story 03)
 
 Native requirements are system-level, at /etc/codex/requirements.toml on
 Unix (including macOS) and %ProgramData%/OpenAI/Codex/requirements.toml on Windows.
 Legacy managed_config.toml uses different paths and semantics. Do not derive
-the Windows requirements path from a user's config.toml. Cloud, legacy and
-macOS MDM sources may have higher precedence than system requirements.
-Do not delete mandatory requirements when a user opts out of optional
-program management. Define the ownership and scope contract before wiring
-the write path. Preserve foreign files, and distinguish removal by a new
-authorized policy revision from local opt-out.
+the Windows requirements path from a user's config.toml. Review all applicable sources, including cloud policy and macOS MDM;
+the native client's precedence and field-specific merge rules determine
+effective requirements. Windows is intentionally inactive for requirements
+until its ACL and registry override are implemented.
+
+For a Unix pilot, provision a root-owned /etc/codex directory with no group
+or other write permission (MDM), then configure the system daemon:
+
+```yaml
+programs:
+  codex:
+    useLlmGateway: false
+    requirements:
+      allowed_approval_policies: [on-request]
+      default_permissions: ":read-only"
+      allowed_permission_profiles:
+        ":read-only": true
+```
+
+Use Codex 0.138.0 or later for permission-profile allowlists. The endpoint
+writes native TOML but does not guarantee the client supports or enforces
+all supplied fields. Keep custom permission definitions in requirements,
+not in optional defaults. Confirm /debug-config, /status and deny tests.
+
+Omitting requirements (including removing the entire Codex program) leaves
+the last requirements file untouched. An explicit empty requirements object
+retires only a file bearing the dedicated Agentdesktop ownership marker.
+Foreign files are preserved and conflict on attempted takeover. User mode
+does not touch either defaults or requirements for this Codex entry;
+programSelection.allowUserChoice is incompatible with requirements in this
+initial implementation. For staged removal, send the empty object, verify
+removal, then remove the Codex program. Multi-file apply is not atomic; keep
+requirements self-contained.
 
 Vendor reference: https://learn.chatgpt.com/docs/enterprise/managed-configuration
 

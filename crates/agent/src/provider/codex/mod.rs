@@ -8,6 +8,8 @@ use crate::reconcile::ReconcilePlan;
 
 pub(super) mod discovery;
 mod reconcile;
+#[cfg(unix)]
+mod requirements;
 
 #[derive(Clone)]
 pub struct Codex {
@@ -48,7 +50,31 @@ impl Provider for Codex {
                 .filter(|_| provider.use_llm_gateway);
             (provider, gateway)
         });
+        let native_requirements = config
+            .programs
+            .codex
+            .as_ref()
+            .and_then(|provider| provider.requirements.as_ref());
+        if native_requirements.is_some() {
+            anyhow::ensure!(
+                !config.program_selection.allow_user_choice,
+                "Codex requirements must not be subject to user opt-out"
+            );
+            if ctx.user_mode {
+                return Ok(ReconcilePlan::skipped(
+                    "Codex requirements require a system daemon; configuration left untouched",
+                ));
+            }
+            #[cfg(not(unix))]
+            return Ok(ReconcilePlan::skipped(
+                "Codex requirements are not supported by this daemon on this platform",
+            ));
+        }
         let plan = ReconcilePlan::default();
+        #[cfg(unix)]
+        if let Some(values) = native_requirements.filter(|values| !values.is_empty()) {
+            requirements::plan_system(&self.managed_config_path, values, &plan)?;
+        }
         reconcile::plan(
             &self.managed_config_path,
             &ctx.credential_helper,
@@ -58,6 +84,11 @@ impl Provider for Codex {
             configured,
             &plan,
         )?;
+        // Retire only on explicit administrative request, and after defaults.
+        #[cfg(unix)]
+        if let Some(values) = native_requirements.filter(|values| values.is_empty()) {
+            requirements::plan_system(&self.managed_config_path, values, &plan)?;
+        }
         Ok(plan)
     }
 }

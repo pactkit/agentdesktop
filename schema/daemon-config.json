@@ -153,6 +153,14 @@
           "type": "object",
           "additionalProperties": true
         },
+        "requirements": {
+          "description": "Native Codex requirements.toml values, managed in system mode on Unix.\nOmit to preserve existing requirements; an empty object explicitly retires owned requirements.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
         "useLlmGateway": {
           "description": "Whether this program uses the top-level LLM gateway.",
           "type": "boolean"
