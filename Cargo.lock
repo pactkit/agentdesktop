@@ -159,6 +159,8 @@ name = "agentdesktop-core"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "aws-lc-rs",
+ "base64 0.23.1",
  "jiff 1.0.1",
  "rcgen",
  "reqwest",
@@ -169,6 +171,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_json_path_to_error",
+ "sha2 0.11.1",
  "tracing-appender",
  "tracing-subscriber",
  "url",

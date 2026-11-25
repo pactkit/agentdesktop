@@ -1,4 +1,5 @@
 pub mod application;
+pub mod catalog;
 pub mod daemon_config;
 pub mod database;
 pub mod device_ca;
