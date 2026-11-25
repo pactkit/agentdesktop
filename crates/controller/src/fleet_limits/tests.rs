@@ -3,7 +3,8 @@ use std::{net::SocketAddr, pin::Pin, time::Duration};
 use agentdesktop_proto::fleet::{
     AgentMessage, ControllerMessage, DeviceCertificateResponse, DeviceUsageRequest,
     DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse, GetAgentCatalogRequest,
-    GetAgentCatalogResponse, LlmGatewayCredentialRequest, LlmGatewayCredentialResponse,
+    GetAgentCatalogResponse, ExchangeAgentJobRequest, ExchangeAgentJobResponse,
+    LlmGatewayCredentialRequest, LlmGatewayCredentialResponse,
     LoginConfiguration, LoginConfigurationRequest, RenewDeviceCertificateRequest,
     fleet_agent_client::FleetAgentClient, fleet_agent_server::FleetAgent,
 };
@@ -86,6 +87,13 @@ impl FleetAgent for Slow {
         &self,
         _: Request<GetAgentCatalogRequest>,
     ) -> Result<Response<GetAgentCatalogResponse>, Status> {
+        Err(Status::unimplemented("test"))
+    }
+
+    async fn exchange_agent_job(
+        &self,
+        _: Request<ExchangeAgentJobRequest>,
+    ) -> Result<Response<ExchangeAgentJobResponse>, Status> {
         Err(Status::unimplemented("test"))
     }
 

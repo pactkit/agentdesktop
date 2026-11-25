@@ -173,3 +173,53 @@ export interface ProgramManagement {
   /** Configured programs in reconcile order; empty before a configuration. */
   programs: ManagedProgram[];
 }
+
+export interface CatalogAgentView {
+  id: string;
+  displayName: string;
+  versions: string[];
+  supported: boolean;
+}
+
+export interface CatalogJobView {
+  id: string;
+  agentId: string;
+  version: string;
+  action: number;
+  state: number;
+  attempt: number;
+  createdAt: number;
+  updatedAt: number;
+  deadlineUnixSeconds: number;
+  errorCode: string;
+}
+
+export interface CatalogJobsView {
+  revision: number | null;
+  sha256: string | null;
+  expiresAt: number | null;
+  lastSyncUnixSeconds: number | null;
+  entries: CatalogAgentView[];
+  jobs: CatalogJobView[];
+  localExecutionEnabled: boolean;
+  selfServiceAllowed: boolean;
+}
+
+export interface CatalogJobRequest {
+  agentId: string;
+  version: string;
+  action: "install" | "update" | "uninstall";
+  idempotencyKey: string;
+  deadlineUnixSeconds: number;
+  catalogRevision: number;
+  catalogSha256: string;
+}
+
+export interface AssistantStatus {
+  enabled: boolean;
+  model: string | null;
+}
+
+export interface AssistantAnswer {
+  text: string;
+}

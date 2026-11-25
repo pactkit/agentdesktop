@@ -277,6 +277,18 @@
       "description": "Settings read only at local daemon startup. Paths use the process working directory.",
       "type": "object",
       "properties": {
+        "allowCatalogJobs": {
+          "description": "Enable signed catalog jobs in a local macOS user daemon. Defaults to false.",
+          "type": "boolean",
+          "default": false
+        },
+        "assistantModel": {
+          "description": "Optional model for read-only diagnostics through the managed HTTPS gateway.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "catalogPublicKeys": {
           "description": "Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.",
           "type": "array",

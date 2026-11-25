@@ -1,5 +1,6 @@
 pub use subscription_oauth::anthropic as anthropic_oauth;
 pub mod api;
+mod assistant;
 pub mod catalog;
 pub mod cli;
 pub mod daemon;
@@ -10,6 +11,7 @@ pub mod identity;
 pub mod installer;
 mod inventory_watch;
 pub mod jobs;
+mod job_worker;
 mod llm_proxy;
 pub mod manifest;
 pub mod oidc;

@@ -101,6 +101,12 @@ pub struct DaemonStartupConfig {
     /// Pi paths.
     #[serde(default)]
     pub pi: PiStartupConfig,
+    /// Enable signed catalog jobs in a local macOS user daemon. Defaults to false.
+    #[serde(default)]
+    pub allow_catalog_jobs: bool,
+    /// Optional model for read-only diagnostics through the managed HTTPS gateway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_model: Option<String>,
     /// Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub catalog_public_keys: Vec<crate::catalog::CatalogPublicKey>,
@@ -553,6 +559,9 @@ pub struct ControllerAgentCatalogConfig {
     pub path: PathBuf,
     /// Pinned Ed25519 public keys used to validate the file at load time.
     pub public_keys: Vec<crate::catalog::CatalogPublicKey>,
+    /// Permit authenticated users to request signed catalog jobs for their own device.
+    #[serde(default)]
+    pub allow_self_service_jobs: bool,
 }
 
 /// Authentication and exposure policy for the management API and UI.
@@ -1897,7 +1906,17 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
         }
     }
     if let Some(startup) = &config.daemon {
+        if let Some(model) = &startup.assistant_model {
+            anyhow::ensure!(
+                !model.is_empty() && model.len() <= 128 && !model.chars().any(char::is_whitespace),
+                "daemon.assistantModel must be a nonempty model identifier"
+            );
+        }
         crate::catalog::validate_public_keys(&startup.catalog_public_keys)?;
+        anyhow::ensure!(
+            !startup.allow_catalog_jobs || !startup.catalog_public_keys.is_empty(),
+            "daemon.allowCatalogJobs requires locally pinned catalog keys"
+        );
         anyhow::ensure!(
             startup.catalog_public_keys.is_empty() || config.controller.is_some(),
             "daemon.catalogPublicKeys requires a controller"
@@ -2458,6 +2477,14 @@ mod tests {
         };
         assert_eq!(certificate, directory.join("admin-cert.pem"));
         assert_eq!(key, directory.join("admin-key.pem"));
+    }
+
+    #[test]
+    fn catalog_job_enablement_is_local_and_requires_pins() {
+        assert!(super::parse_local_daemon("daemon: { allowCatalogJobs: true }").is_err());
+        assert!(super::parse_daemon("daemon: { allowCatalogJobs: true }").is_err());
+        let config = super::parse_local_daemon("daemon: {}").unwrap();
+        assert!(!config.daemon.unwrap().allow_catalog_jobs);
     }
 
     #[test]

@@ -9,6 +9,7 @@ service FleetAgent {
   rpc GetLlmGatewayCredential(LlmGatewayCredentialRequest) returns (LlmGatewayCredentialResponse);
   rpc GetDeviceUsage(DeviceUsageRequest) returns (DeviceUsageResponse);
   rpc GetAgentCatalog(GetAgentCatalogRequest) returns (GetAgentCatalogResponse);
+  rpc ExchangeAgentJob(ExchangeAgentJobRequest) returns (ExchangeAgentJobResponse);
   rpc Connect(stream AgentMessage) returns (stream ControllerMessage);
 }
 
@@ -314,4 +315,50 @@ message JobStatus {
   string error_message = 6;
   // Redacted diagnostic JSON: OS/arch, free disk, target root, stderr tail.
   string diagnostics_json = 7;
+}
+
+// Device identity is derived from the certificate, never supplied by the caller.
+message ExchangeAgentJobRequest {
+  oneof operation {
+    bool poll = 1;
+    JobStart start = 2;
+    JobStatus report = 3;
+    bool list = 4;
+    SelfServiceJobRequest enqueue = 5;
+  }
+}
+
+message JobStart {
+  string job_id = 1;
+  uint32 attempt = 2;
+}
+
+message ExchangeAgentJobResponse {
+  AgentJob job = 1;
+  bool acknowledged = 2;
+  repeated DeviceJobSummary jobs = 3;
+  bool self_service_allowed = 4;
+}
+
+message SelfServiceJobRequest {
+  string agent_id = 1;
+  string version = 2;
+  JobAction action = 3;
+  string idempotency_key = 4;
+  uint64 deadline_unix_seconds = 5;
+  uint64 catalog_revision = 6;
+  string catalog_sha256 = 7;
+}
+
+message DeviceJobSummary {
+  string id = 1;
+  string agent_id = 2;
+  string version = 3;
+  JobAction action = 4;
+  JobState state = 5;
+  uint32 attempt = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+  int64 deadline_unix_seconds = 9;
+  string error_code = 10;
 }

@@ -109,6 +109,25 @@ impl JobExecutor {
         }
     }
 
+    /// Recover a terminal observation without re-executing a job. A running
+    /// journal is ambiguous after a crash and is reported as interrupted.
+    pub fn recover_status(&self, job_id: &str, attempt: u32) -> anyhow::Result<Option<JobStatus>> {
+        ensure!(safe_component(job_id) && attempt > 0, "invalid job identity");
+        let path = self.state_dir.join("jobs").join(format!("{job_id}.json"));
+        let Some(mut journal) = read_journal(&path)? else {
+            return Ok(None);
+        };
+        ensure!(journal.attempt == attempt, "journal attempt mismatch");
+        if journal.state == JobState::Running as i32 {
+            journal.state = JobState::Failed as i32;
+            journal.error_code = "interrupted".into();
+            write_journal(&path, &journal)?;
+        }
+        ensure!(matches!(JobState::try_from(journal.state).ok(),
+            Some(JobState::Succeeded | JobState::Failed)), "invalid recovered job state");
+        Ok(Some(journal.status(job_id)))
+    }
+
     pub fn execute(
         &self,
         job: &AgentJob,

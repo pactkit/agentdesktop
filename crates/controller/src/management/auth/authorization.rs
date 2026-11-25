@@ -81,6 +81,7 @@ pub const OPERATIONS: &[(Verb, &str)] = &[
     (Verb::Update, DEVICES),
     (Verb::Read, DEVICE_AUDIT),
     (Verb::Read, DEVICE_JOBS),
+    (Verb::Create, DEVICE_JOBS),
     (Verb::Delete, DEVICES),
     (Verb::Read, DAEMON_CONFIG),
     (Verb::Read, SETTINGS),

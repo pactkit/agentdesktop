@@ -126,6 +126,7 @@ pub async fn run(
         .transpose()
         .context("initialize signed agent catalog")?
         .unwrap_or_default();
+    let admin_state = admin_state.with_catalog(catalog.clone());
     let service = FleetAgentService::new(
         Some(oidc),
         database,
@@ -135,6 +136,7 @@ pub async fn run(
         &limits,
     )
     .with_catalog(catalog)
+    .with_self_service_jobs(config.agent_catalog.as_ref().is_some_and(|settings| settings.allow_self_service_jobs))
     .with_enrollment_tokens(enrollment_tokens)
     .with_usage_collection(usage_ingest.is_some());
 

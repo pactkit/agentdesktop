@@ -566,6 +566,34 @@ async fn get_discovery() -> Result<Discovery, String> {
 }
 
 #[tauri::command]
+async fn get_assistant_status() -> Result<agentdesktop_core::model::AssistantStatus, String> {
+    client::get(&client_socket_path(), "/v1/assistant")
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+async fn ask_assistant(input: agentdesktop_core::model::AssistantQuestion) -> Result<agentdesktop_core::model::AssistantAnswer, String> {
+    client::post_json_decode(&client_socket_path(), "/v1/assistant", &input)
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+async fn get_catalog_jobs() -> Result<agentdesktop_core::model::CatalogJobsView, String> {
+    client::get(&client_socket_path(), "/v1/catalog-jobs")
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+async fn request_catalog_job(input: agentdesktop_core::model::CatalogJobRequest) -> Result<String, String> {
+    client::post_json_decode(&client_socket_path(), "/v1/catalog-jobs", &input)
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
 async fn get_device_usage(range: String, utc_offset_minutes: i32) -> Result<DeviceUsage, String> {
     if !matches!(range.as_str(), "24h" | "7d" | "30d") {
         return Err(format!("unknown usage range {range}"));
@@ -715,6 +743,10 @@ fn run_desktop() -> anyhow::Result<()> {
             get_managed_device_status,
             get_discovery,
             get_device_usage,
+            get_catalog_jobs,
+            request_catalog_job,
+            get_assistant_status,
+            ask_assistant,
             logout_managed_device,
             get_program_management,
             set_program_choice,

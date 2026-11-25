@@ -9,7 +9,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::{
@@ -22,7 +22,7 @@ use super::{
 use crate::{
     database::{DeviceDetail, DeviceSummary},
     device_lifecycle::{DeviceLifecycle, LifecycleAudit, Target, Transition},
-    jobs::JobSummary,
+    jobs::{JobRecord, JobSummary, NewJob},
     usage,
 };
 
@@ -167,6 +167,94 @@ pub(super) async fn device_jobs(
         return Err(HandlerError::NotFound);
     }
     Ok(Json(state.database.list_device_jobs(&device_id).await?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CreateDeviceJob {
+    agent_id: String,
+    version: String,
+    action: String,
+    idempotency_key: String,
+    deadline_unix_seconds: i64,
+}
+
+pub(super) async fn create_device_job(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+    Json(input): Json<CreateDeviceJob>,
+) -> Result<Json<JobRecord>, HandlerError> {
+    use agentdesktop_proto::fleet::JobAction;
+    auth.require(AccessRequest {
+        verb: Verb::Create,
+        resource_class: authorization::DEVICE_JOBS,
+        resource: Some(&device_id),
+    })
+    .await?;
+    let now = unix_time_seconds();
+    if input.deadline_unix_seconds <= now
+        || input.deadline_unix_seconds > now.saturating_add(86400)
+        || input.idempotency_key.trim().is_empty()
+        || input.idempotency_key.len() > 128
+        || input.idempotency_key.chars().any(char::is_control)
+    {
+        return Err(HandlerError::BadRequest("invalid deadline or idempotency key"));
+    }
+    let safe = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value.as_bytes()[0].is_ascii_alphanumeric()
+            && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    };
+    if !safe(&input.agent_id) || !safe(&input.version) {
+        return Err(HandlerError::BadRequest("invalid agent or version"));
+    }
+    let action = match input.action.as_str() {
+        "install" => JobAction::Install,
+        "update" => JobAction::Update,
+        "uninstall" => JobAction::Uninstall,
+        _ => return Err(HandlerError::BadRequest("unknown job action")),
+    };
+    let device = state.database.get_device(&device_id).await?
+        .ok_or(HandlerError::NotFound)?.device;
+    if device.state != "active" || device.os != "macos" {
+        return Err(HandlerError::Conflict("device is inactive or platform installer is unsupported"));
+    }
+    let snapshot = state.catalog.current()
+        .ok_or(HandlerError::Conflict("no signed catalog configured"))?;
+    if snapshot.catalog.created_at > now as u64
+        || snapshot.catalog.is_expired(now as u64)
+        || input.deadline_unix_seconds as u64 > snapshot.catalog.expires_at
+    {
+        return Err(HandlerError::Conflict("catalog not valid through job deadline"));
+    }
+    let entry = snapshot.catalog.entries.iter().find(|entry| entry.id == input.agent_id)
+        .ok_or(HandlerError::BadRequest("agent not in signed catalog"))?;
+    if !entry.platforms.contains(&device.os)
+        || !entry.architectures.contains(&device.architecture)
+        || !entry.versions.iter().any(|version| version.version == input.version)
+    {
+        return Err(HandlerError::BadRequest("unsupported device or version"));
+    }
+    let actor = auth.principal();
+    let requested_by = serde_json::to_string(&(&actor.issuer, &actor.subject))
+        .context("encode job requester")?;
+    let job = NewJob {
+        device_id,
+        idempotency_key: input.idempotency_key,
+        origin: "admin".into(),
+        requested_by,
+        catalog_id: snapshot.catalog.catalog_id.clone(),
+        catalog_revision: i64::try_from(snapshot.catalog.revision)
+            .map_err(|_| HandlerError::BadRequest("catalog revision exceeds database range"))?,
+        catalog_sha256: snapshot.sha256.clone(),
+        agent_id: input.agent_id,
+        version: input.version,
+        action,
+        deadline_unix_seconds: input.deadline_unix_seconds,
+    };
+    Ok(Json(state.database.create_job(&job).await?))
 }
 
 pub(super) async fn device_audit(

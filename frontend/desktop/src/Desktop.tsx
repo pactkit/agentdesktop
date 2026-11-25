@@ -5,6 +5,8 @@ import { PageBoundary } from "./components/PageBoundary";
 import { StatusLoading } from "./components/StatusLoading";
 import { useDesktopModel } from "./useDesktopModel";
 import { useDeviceUsage } from "./useDeviceUsage";
+import { AgentsView } from "./views/AgentsView";
+import { AssistantView } from "./views/AssistantView";
 import { EnrollmentView } from "./views/EnrollmentView";
 import { SettingsView } from "./views/SettingsView";
 import { StatusView } from "./views/StatusView";
@@ -68,6 +70,15 @@ export function Desktop() {
               isLoggingOut={model.isLoggingOut}
               onCopy={model.copyDiagnostics}
               onLogout={model.logout}
+            />
+          ) : model.view === "agents" ? (
+            <AgentsView />
+          ) : model.view === "assistant" ? (
+            <AssistantView
+              connector={model.connector}
+              discovery={model.discovery}
+              enrollment={model.managedDevice}
+              onNavigate={model.navigate}
             />
           ) : showingUsage ? (
             <UsageView

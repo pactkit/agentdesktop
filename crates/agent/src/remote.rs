@@ -98,6 +98,7 @@ pub struct LogoutRequest {
 pub struct Requests {
     pub telemetry: mpsc::Receiver<ModelTelemetryEvent>,
     pub catalog_public_keys: Vec<agentdesktop_core::catalog::CatalogPublicKey>,
+    pub job_home: Option<PathBuf>,
     pub logout: mpsc::Receiver<LogoutRequest>,
     /// The daemon's current configuration, replaced by each pushed
     /// configuration that parses (read by the reconcile tick).
@@ -110,6 +111,7 @@ pub struct Requests {
 /// The configuration channels shared with the reconcile tick.
 struct ConfigChannels {
     catalog_public_keys: Vec<agentdesktop_core::catalog::CatalogPublicKey>,
+    job_home: Option<PathBuf>,
     current: watch::Sender<Option<CurrentConfig>>,
     tick_statuses: Option<watch::Receiver<Option<TickStatus>>>,
 }
@@ -206,12 +208,14 @@ pub async fn run(
     let Requests {
         mut telemetry,
         catalog_public_keys,
+        job_home,
         mut logout,
         current,
         tick_statuses,
     } = requests;
     let mut channels = ConfigChannels {
         catalog_public_keys,
+        job_home,
         current,
         tick_statuses,
     };
@@ -706,6 +710,25 @@ pub async fn llm_gateway_credential(
     })
 }
 
+/// Calls the device-scoped job endpoint with the same identity and timeout
+/// boundary as other authenticated unary fleet operations.
+pub(crate) async fn device_job_exchange(
+    controller: &ControllerConnectionConfig,
+    state_dir: &Path,
+    operation: proto::exchange_agent_job_request::Operation,
+) -> anyhow::Result<proto::ExchangeAgentJobResponse> {
+    let identity_path = state_dir.join("identity.json");
+    let mut identity = identity::load(&identity_path)?.context("device is not enrolled")?;
+    refresh_oauth(&mut identity, &identity_path, false).await?;
+    let call = async {
+        let mut client = client(controller, Some(&identity)).await?;
+        let mut request = Request::new(proto::ExchangeAgentJobRequest { operation: Some(operation) });
+        authenticate_request(&identity, &mut request)?;
+        anyhow::Ok(client.exchange_agent_job(request).await?.into_inner())
+    };
+    time::timeout(Duration::from_secs(15), call).await?
+}
+
 /// The gateway usage the controller recorded for this device. A controller
 /// without usage support reports usage as not collected.
 pub async fn device_usage(
@@ -859,6 +882,11 @@ async fn connect(
     } else {
         crate::catalog::CatalogCache::load(&catalog_dir, &channels.catalog_public_keys)
     };
+    let job_worker = crate::job_worker::run(
+        client.clone(), identity, state_dir, &catalog_dir, &channels.catalog_public_keys,
+        channels.job_home.as_deref(),
+    );
+    tokio::pin!(job_worker);
     let reconnect_at = identity
         .oauth
         .as_ref()
@@ -875,7 +903,10 @@ async fn connect(
                 info!("reconnecting controller stream to refresh OIDC access token");
                 return Ok(());
             }
-            _ = catalog_tick.tick(), if !channels.catalog_public_keys.is_empty() => {
+            _ = &mut job_worker => {
+                return Err(anyhow::anyhow!("catalog job worker stopped"));
+            }
+            _ = catalog_tick.tick(), if !channels.catalog_public_keys.is_empty() && channels.job_home.is_none() => {
                 let result = time::timeout(Duration::from_secs(15), sync_catalog(&mut client, identity, &catalog_dir, &channels.catalog_public_keys, &mut catalog_cache)).await;
                 match result {
                     Ok(Ok(())) => {},
@@ -956,7 +987,7 @@ async fn connect(
     }
 }
 
-async fn sync_catalog(
+pub(crate) async fn sync_catalog(
     client: &mut FleetAgentClient<Channel>,
     identity: &Identity,
     state_dir: &Path,
@@ -1388,7 +1419,7 @@ fn controller_ca(path: &Path) -> anyhow::Result<Certificate> {
 
 /// Adds the user's access token. A token-enrolled device has none: its
 /// client certificate alone authenticates it.
-fn authenticate_request<T>(identity: &Identity, request: &mut Request<T>) -> anyhow::Result<()> {
+pub(crate) fn authenticate_request<T>(identity: &Identity, request: &mut Request<T>) -> anyhow::Result<()> {
     let Some(oauth) = &identity.oauth else {
         return Ok(());
     };

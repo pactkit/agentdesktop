@@ -3,6 +3,7 @@ use std::{ops::ControlFlow, pin::Pin, time::Duration};
 use agentdesktop_proto::fleet::{
     AgentMessage, ConfigStatus, ControllerMessage, DaemonConfig, DeviceCertificateResponse,
     DeviceUsageRequest, DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse,
+    ExchangeAgentJobRequest, ExchangeAgentJobResponse, exchange_agent_job_request,
     GetAgentCatalogRequest, GetAgentCatalogResponse, LlmGatewayCredentialRequest,
     LlmGatewayCredentialResponse, LoginConfiguration, LoginConfigurationRequest,
     RenewDeviceCertificateRequest, agent_message, controller_message,
@@ -46,6 +47,7 @@ pub struct FleetAgentService {
     device_certificate_issuer: Option<DeviceCertificateIssuer>,
     usage_enabled: bool,
     catalog: CatalogStore,
+    allow_self_service_jobs: bool,
     enrollment: EnrollmentLimiter,
     device_streams: DeviceStreams,
 }
@@ -71,6 +73,7 @@ impl FleetAgentService {
             device_certificate_issuer,
             usage_enabled: false,
             catalog: CatalogStore::empty(),
+            allow_self_service_jobs: false,
             enrollment: EnrollmentLimiter::new(limits),
             device_streams: DeviceStreams::new(limits),
         }
@@ -84,6 +87,11 @@ impl FleetAgentService {
 
     pub fn with_catalog(mut self, catalog: CatalogStore) -> Self {
         self.catalog = catalog;
+        self
+    }
+
+    pub fn with_self_service_jobs(mut self, enabled: bool) -> Self {
+        self.allow_self_service_jobs = enabled;
         self
     }
 
@@ -312,6 +320,120 @@ impl FleetAgent for FleetAgentService {
                 snapshot.signed_catalog_json.clone()
             },
         }))
+    }
+
+    async fn exchange_agent_job(
+        &self,
+        request: Request<ExchangeAgentJobRequest>,
+    ) -> Result<Response<ExchangeAgentJobResponse>, Status> {
+        use exchange_agent_job_request::Operation;
+        let device_id = self.authenticate_device(&request).await?;
+        let operation = request.into_inner().operation
+            .ok_or_else(|| Status::invalid_argument("missing job operation"))?;
+        if matches!(operation, Operation::List(true)) {
+            let user = self.database.device_principal(&device_id).await.map_err(internal)?.user;
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| Status::internal("invalid controller clock"))?.as_secs();
+            let device = self.database.get_device(&device_id).await.map_err(internal)?;
+            let enabled = self.allow_self_service_jobs && user.is_some()
+                && device.is_some_and(|device| device.device.os == "macos")
+                && self.catalog.current().is_some_and(|snapshot| {
+                    snapshot.catalog.created_at <= now && !snapshot.catalog.is_expired(now)
+                });
+            let jobs = self.database.list_device_jobs(&device_id).await.map_err(internal)?;
+            return Ok(Response::new(ExchangeAgentJobResponse {
+                acknowledged: true,
+                jobs: jobs.iter().map(|job| job.to_device_proto()).collect(),
+                self_service_allowed: enabled,
+                ..Default::default()
+            }));
+        }
+        // Result delivery remains possible even if the catalog has expired.
+        if let Operation::Report(status) = &operation {
+            if status.job_id.len() > 128 || status.attempt == 0 {
+                return Err(Status::invalid_argument("invalid job report"));
+            }
+            let acknowledged = self.database.report_catalog_job(&device_id, status)
+                .await.map_err(internal)?;
+            return Ok(Response::new(ExchangeAgentJobResponse { job: None, acknowledged, ..Default::default() }));
+        }
+        let snapshot = self.catalog.current()
+            .ok_or_else(|| Status::failed_precondition("no agent catalog configured"))?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Status::internal("invalid controller clock"))?.as_secs();
+        if snapshot.catalog.is_expired(now) || snapshot.catalog.created_at > now {
+            return Err(Status::failed_precondition("agent catalog not currently valid"));
+        }
+        let revision = i64::try_from(snapshot.catalog.revision)
+            .map_err(|_| Status::failed_precondition("catalog revision out of range"))?;
+        let reply = match operation {
+            Operation::Poll(true) => ExchangeAgentJobResponse {
+                job: self.database.claim_catalog_job(&device_id, &snapshot.catalog.catalog_id,
+                    revision, &snapshot.sha256).await.map_err(internal)?.map(|job| job.to_proto()),
+                acknowledged: true,
+                ..Default::default()
+            },
+            Operation::Enqueue(input) => {
+                let user = self.database.device_principal(&device_id).await.map_err(internal)?.user
+                    .filter(|_| self.allow_self_service_jobs)
+                    .ok_or_else(|| Status::permission_denied("self-service jobs are disabled"))?;
+                let device = self.database.get_device(&device_id).await.map_err(internal)?
+                    .ok_or_else(|| Status::not_found("device not found"))?.device;
+                let safe = |value: &str| !value.is_empty() && value.len() <= 128
+                    && value.as_bytes()[0].is_ascii_alphanumeric()
+                    && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+                if device.state != "active" || device.os != "macos"
+                    || !safe(&input.agent_id) || !safe(&input.version) || !safe(&input.idempotency_key)
+                    || input.deadline_unix_seconds <= now
+                    || input.deadline_unix_seconds > now.saturating_add(86400)
+                    || input.deadline_unix_seconds > snapshot.catalog.expires_at
+                    || input.catalog_revision != snapshot.catalog.revision
+                    || input.catalog_sha256 != snapshot.sha256
+                {
+                    return Err(Status::failed_precondition("invalid or outdated catalog job request"));
+                }
+                let entry = snapshot.catalog.entries.iter().find(|entry| entry.id == input.agent_id)
+                    .ok_or_else(|| Status::invalid_argument("agent not in catalog"))?;
+                if !entry.platforms.contains(&device.os) || !entry.architectures.contains(&device.architecture)
+                    || !entry.versions.iter().any(|version| version.version == input.version) {
+                    return Err(Status::invalid_argument("unsupported platform or version"));
+                }
+                let action = agentdesktop_proto::fleet::JobAction::try_from(input.action)
+                    .map_err(|_| Status::invalid_argument("invalid job action"))?;
+                if action == agentdesktop_proto::fleet::JobAction::Unspecified {
+                    return Err(Status::invalid_argument("invalid job action"));
+                }
+                let requested_by = serde_json::to_string(&(&user.issuer, &user.subject))
+                    .map_err(|error| internal(error.into()))?;
+                let job = self.database.create_job(&crate::jobs::NewJob {
+                    device_id, idempotency_key: input.idempotency_key, origin: "self_service".into(),
+                    requested_by, catalog_id: snapshot.catalog.catalog_id.clone(), catalog_revision: revision,
+                    catalog_sha256: snapshot.sha256.clone(), agent_id: input.agent_id, version: input.version,
+                    action, deadline_unix_seconds: i64::try_from(input.deadline_unix_seconds)
+                        .map_err(|_| Status::invalid_argument("invalid deadline"))?,
+                }).await.map_err(internal)?;
+                ExchangeAgentJobResponse {
+                    job: Some(job.to_proto()),
+                    acknowledged: true,
+                    ..Default::default()
+                }
+            }
+            Operation::Start(start) => {
+                if start.job_id.len() > 128 || start.attempt == 0 {
+                    return Err(Status::invalid_argument("invalid start request"));
+                }
+                ExchangeAgentJobResponse {
+                    job: None,
+                    acknowledged: self.database.authorize_catalog_job(
+                        &device_id, &start.job_id, start.attempt, &snapshot.catalog.catalog_id,
+                        revision, &snapshot.sha256,
+                    ).await.map_err(internal)?,
+                    ..Default::default()
+                }
+            }
+            _ => return Err(Status::invalid_argument("invalid job operation")),
+        };
+        Ok(Response::new(reply))
     }
 
     async fn connect(

@@ -59,6 +59,12 @@ impl FleetAgent for Controller {
     ) -> Reply<GetAgentCatalogResponse> {
         Err(tonic::Status::unimplemented("not used"))
     }
+    async fn exchange_agent_job(
+        &self,
+        _: Request<ExchangeAgentJobRequest>,
+    ) -> Reply<ExchangeAgentJobResponse> {
+        Err(tonic::Status::unimplemented("not used"))
+    }
     type ConnectStream = ReceiverStream<Result<ControllerMessage, tonic::Status>>;
     async fn connect(
         &self,
@@ -202,6 +208,7 @@ impl Fixture {
             let (current, _current_receiver) = watch::channel(None);
             let mut channels = ConfigChannels {
                 catalog_public_keys: Vec::new(),
+                job_home: None,
                 current,
                 tick_statuses: None,
             };

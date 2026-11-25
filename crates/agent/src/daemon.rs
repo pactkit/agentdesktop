@@ -623,6 +623,13 @@ where
             controller_status.clone(),
             remote::Requests {
                 telemetry: telemetry_receiver,
+                job_home: if cfg!(target_os = "macos") && args.user
+                    && config.daemon.as_ref().is_some_and(|startup| startup.allow_catalog_jobs)
+                {
+                    Some(home_directory()?)
+                } else {
+                    None
+                },
                 catalog_public_keys: config
                     .daemon
                     .as_ref()

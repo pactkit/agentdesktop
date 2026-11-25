@@ -1163,6 +1163,15 @@ mod tests {
         > {
             Err(tonic::Status::unimplemented("not used"))
         }
+        async fn exchange_agent_job(
+            &self,
+            _: tonic::Request<agentdesktop_proto::fleet::ExchangeAgentJobRequest>,
+        ) -> Result<
+            tonic::Response<agentdesktop_proto::fleet::ExchangeAgentJobResponse>,
+            tonic::Status,
+        > {
+            Err(tonic::Status::unimplemented("not used"))
+        }
         async fn connect(
             &self,
             _: tonic::Request<tonic::Streaming<agentdesktop_proto::fleet::AgentMessage>>,
