@@ -32,7 +32,10 @@ pub(super) fn plan_system(
         "Codex defaults must not target requirements.toml"
     );
     // SAFETY: geteuid has no pointer arguments and no side effects.
-    ensure!(unsafe { libc::geteuid() } == 0, "Codex requirements require root");
+    ensure!(
+        unsafe { libc::geteuid() } == 0,
+        "Codex requirements require root"
+    );
     let path = checked_system_path(!values.is_empty())?;
     plan_file(&path, values, plan)
 }
@@ -43,9 +46,9 @@ pub(crate) fn checked_system_path(require_readable: bool) -> anyhow::Result<Path
     let path = Path::new(PATH);
     let parent = path.parent().context("requirements path has no parent")?;
     // MDM must provision this directory. Canonicalize to support macOS /etc.
-    let resolved = parent
-        .canonicalize()
-        .context("provision /etc/codex as an administrator-owned directory before applying requirements")?;
+    let resolved = parent.canonicalize().context(
+        "provision /etc/codex as an administrator-owned directory before applying requirements",
+    )?;
     for directory in resolved.ancestors() {
         let metadata = fs::metadata(directory)
             .with_context(|| format!("inspect requirements directory {}", directory.display()))?;
@@ -148,7 +151,10 @@ mod tests {
         BTreeMap::from([
             ("allowed_approval_policies".into(), json!(["on-request"])),
             ("default_permissions".into(), json!(":read-only")),
-            ("allowed_permission_profiles".into(), json!({":read-only": true})),
+            (
+                "allowed_permission_profiles".into(),
+                json!({":read-only": true}),
+            ),
         ])
     }
 
@@ -175,7 +181,11 @@ mod tests {
         let update = ReconcilePlan::default();
         plan_file(&path, &changed, &update).unwrap();
         update.apply().unwrap();
-        assert!(fs::read_to_string(&path).unwrap().contains("allow_managed_hooks_only = true"));
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("allow_managed_hooks_only = true")
+        );
 
         let retire = ReconcilePlan::default();
         plan_file(&path, &BTreeMap::new(), &retire).unwrap();

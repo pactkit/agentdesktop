@@ -21,6 +21,8 @@ use super::{
 };
 use crate::{
     database::{DeviceDetail, DeviceSummary},
+    device_lifecycle::{DeviceLifecycle, LifecycleAudit, Target, Transition},
+    jobs::JobSummary,
     usage,
 };
 
@@ -56,9 +58,10 @@ pub(super) async fn overview(
     let online_devices = devices
         .iter()
         .filter(|device| {
-            device
-                .last_seen_at
-                .is_some_and(|last_seen| now - last_seen <= 90)
+            device.state == "active"
+                && device
+                    .last_seen_at
+                    .is_some_and(|last_seen| now - last_seen <= 90)
         })
         .count();
     let config_failures = devices
@@ -119,10 +122,109 @@ pub(super) async fn delete_device(
     })
     .await?;
     if !state.database.delete_device(&device_id).await? {
+        if state.database.device_lifecycle(&device_id).await?.is_some() {
+            return Err(HandlerError::Conflict(
+                "inactive devices retain their lifecycle record",
+            ));
+        }
         return Err(HandlerError::NotFound);
     }
     info!(%device_id, "deleted device from controller");
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(super) async fn device_lifecycle(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<DeviceLifecycle>, HandlerError> {
+    auth.require(AccessRequest {
+        verb: Verb::Read,
+        resource_class: authorization::DEVICES,
+        resource: Some(&device_id),
+    })
+    .await?;
+    state
+        .database
+        .device_lifecycle(&device_id)
+        .await?
+        .map(Json)
+        .ok_or(HandlerError::NotFound)
+}
+
+pub(super) async fn device_jobs(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<Vec<JobSummary>>, HandlerError> {
+    auth.require(AccessRequest {
+        verb: Verb::Read,
+        resource_class: authorization::DEVICE_JOBS,
+        resource: Some(&device_id),
+    })
+    .await?;
+    if state.database.device_lifecycle(&device_id).await?.is_none() {
+        return Err(HandlerError::NotFound);
+    }
+    Ok(Json(state.database.list_device_jobs(&device_id).await?))
+}
+
+pub(super) async fn device_audit(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<Vec<LifecycleAudit>>, HandlerError> {
+    auth.require(AccessRequest {
+        verb: Verb::Read,
+        resource_class: authorization::DEVICE_AUDIT,
+        resource: Some(&device_id),
+    })
+    .await?;
+    if state.database.device_lifecycle(&device_id).await?.is_none() {
+        return Err(HandlerError::NotFound);
+    }
+    Ok(Json(state.database.lifecycle_audit(&device_id).await?))
+}
+
+pub(super) async fn retire_device(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<DeviceLifecycle>, HandlerError> {
+    transition_device(state, auth, device_id, Target::Retired).await
+}
+
+pub(super) async fn revoke_device(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<DeviceLifecycle>, HandlerError> {
+    transition_device(state, auth, device_id, Target::Revoked).await
+}
+
+async fn transition_device(
+    state: ManagementState,
+    auth: Context,
+    device_id: String,
+    target: Target,
+) -> Result<Json<DeviceLifecycle>, HandlerError> {
+    auth.require(AccessRequest {
+        verb: Verb::Update,
+        resource_class: authorization::DEVICES,
+        resource: Some(&device_id),
+    })
+    .await?;
+    match state
+        .database
+        .transition_device(&device_id, target, auth.principal())
+        .await?
+    {
+        Transition::Changed(device) | Transition::Unchanged(device) => Ok(Json(device)),
+        Transition::Missing => Err(HandlerError::NotFound),
+        Transition::Conflict => Err(HandlerError::Conflict(
+            "invalid device lifecycle transition",
+        )),
+    }
 }
 
 #[derive(Serialize)]
@@ -211,6 +313,7 @@ pub(super) enum HandlerError {
     Internal(anyhow::Error),
     NotFound,
     BadRequest(&'static str),
+    Conflict(&'static str),
 }
 
 impl From<Error> for HandlerError {
@@ -244,6 +347,11 @@ impl IntoResponse for HandlerError {
                 .into_response(),
             Self::BadRequest(message) => (
                 StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": message })),
+            )
+                .into_response(),
+            Self::Conflict(message) => (
+                StatusCode::CONFLICT,
                 Json(serde_json::json!({ "error": message })),
             )
                 .into_response(),

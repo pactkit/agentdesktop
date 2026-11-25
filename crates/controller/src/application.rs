@@ -1,4 +1,5 @@
 use crate::{
+    catalog::CatalogStore,
     daemon_config::{self, DaemonConfigStore},
     database::Database,
     device_ca::DeviceCertificateIssuer,
@@ -118,6 +119,13 @@ pub async fn run(
     let device_certificate_issuer = DeviceCertificateIssuer::from_pem(ca_certificate, &ca_key)
         .context("initialize device certificate issuer")?;
     tracing::info!("device certificate issuance enabled");
+    let catalog = config
+        .agent_catalog
+        .as_ref()
+        .map(|settings| CatalogStore::load(&settings.path, &settings.public_keys))
+        .transpose()
+        .context("initialize signed agent catalog")?
+        .unwrap_or_default();
     let service = FleetAgentService::new(
         Some(oidc),
         database,
@@ -126,6 +134,7 @@ pub async fn run(
         Some(device_certificate_issuer),
         &limits,
     )
+    .with_catalog(catalog)
     .with_enrollment_tokens(enrollment_tokens)
     .with_usage_collection(usage_ingest.is_some());
 

@@ -623,6 +623,11 @@ where
             controller_status.clone(),
             remote::Requests {
                 telemetry: telemetry_receiver,
+                catalog_public_keys: config
+                    .daemon
+                    .as_ref()
+                    .map(|startup| startup.catalog_public_keys.clone())
+                    .unwrap_or_default(),
                 logout: logout_receiver,
                 current: remote_current_config,
                 tick_statuses: Some(tick_status_receiver),

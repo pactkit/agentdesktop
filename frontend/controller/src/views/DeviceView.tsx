@@ -32,10 +32,18 @@ import {
   friendlyOs,
 } from "../format";
 import { Link } from "../router";
-import type { DeviceDetail, ProgramStatus, UsageReport } from "../types";
+import type {
+  DeviceDetail,
+  DeviceLifecycleAction,
+  ProgramStatus,
+  UsageReport,
+} from "../types";
 
 export interface DeviceViewProps {
   canDelete?: boolean;
+  canUpdate?: boolean;
+  lifecycleAction?: DeviceLifecycleAction;
+  onLifecycleRequest?: (action: DeviceLifecycleAction) => void;
   reauthenticate?: boolean;
   deleteError: string | null;
   deleteOpen: boolean;
@@ -50,6 +58,9 @@ export interface DeviceViewProps {
 
 export function DeviceView({
   canDelete = true,
+  canUpdate = false,
+  lifecycleAction = "delete",
+  onLifecycleRequest,
   reauthenticate = false,
   deleteError,
   deleteOpen,
@@ -60,6 +71,7 @@ export function DeviceView({
   onDeleteRequest,
   usage,
 }: DeviceViewProps) {
+  const active = device.state === undefined || device.state === "active";
   const modelCount = device.model_runtimes.reduce(
     (total, runtime) => total + runtime.models.length,
     0,
@@ -77,7 +89,7 @@ export function DeviceView({
         <div className="device-identity">
           <div>
             <h2>{device.hostname}</h2>
-            <OnlineBadge timestamp={device.last_seen_at} />
+            <OnlineBadge timestamp={device.last_seen_at} state={device.state} />
           </div>
           <p>{device.id}</p>
         </div>
@@ -94,6 +106,14 @@ export function DeviceView({
               ["Architecture", device.architecture || "Unknown"],
               ["Agent version", device.agent_version || "Unknown"],
               ["Last seen", formatTime(device.last_seen_at)],
+              ...(device.retired_at
+                ? [
+                    ["Inactive since", formatDate(device.retired_at)] as [
+                      string,
+                      string,
+                    ],
+                  ]
+                : []),
               ["Enrolled", formatDate(device.created_at)],
               ...enrolledBy,
             ]}
@@ -260,7 +280,36 @@ export function DeviceView({
           ]}
         />
       </section>
-      {canDelete && (
+      {canUpdate &&
+        onLifecycleRequest &&
+        (active || device.state === "retired") && (
+          <section className="danger-zone">
+            <div>
+              <h3>Device lifecycle</h3>
+              <p>
+                Disable fleet access while retaining device history and audit
+                records.
+              </p>
+            </div>
+            {active && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => onLifecycleRequest("retire")}
+              >
+                Retire device
+              </button>
+            )}
+            <button
+              type="button"
+              className="destructive-button"
+              onClick={() => onLifecycleRequest("revoke")}
+            >
+              Revoke device
+            </button>
+          </section>
+        )}
+      {canDelete && active && (
         <section className="danger-zone">
           <div>
             <h3>Delete device</h3>
@@ -278,16 +327,18 @@ export function DeviceView({
           </button>
         </section>
       )}
-      {canDelete && deleteOpen && (
-        <DeleteDeviceDialog
-          hostname={device.hostname}
-          deleting={deleting}
-          error={deleteError}
-          reauthenticate={reauthenticate}
-          onCancel={onDeleteCancel}
-          onConfirm={onDeleteConfirm}
-        />
-      )}
+      {deleteOpen &&
+        (lifecycleAction === "delete" ? canDelete && active : canUpdate) && (
+          <DeleteDeviceDialog
+            action={lifecycleAction}
+            hostname={device.hostname}
+            deleting={deleting}
+            error={deleteError}
+            reauthenticate={reauthenticate}
+            onCancel={onDeleteCancel}
+            onConfirm={onDeleteConfirm}
+          />
+        )}
     </div>
   );
 }
@@ -341,6 +392,7 @@ function DeviceUsage({
 }
 
 function DeleteDeviceDialog({
+  action,
   hostname,
   deleting,
   error,
@@ -348,6 +400,7 @@ function DeleteDeviceDialog({
   onCancel,
   onConfirm,
 }: {
+  action: DeviceLifecycleAction;
   hostname: string;
   deleting: boolean;
   error: string | null;
@@ -355,6 +408,8 @@ function DeleteDeviceDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const label =
+    action === "retire" ? "Retire" : action === "revoke" ? "Revoke" : "Delete";
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
@@ -371,11 +426,13 @@ function DeleteDeviceDialog({
       }}
     >
       <div className="dialog-body">
-        <h2 id="delete-device-title">Delete {hostname || "this device"}?</h2>
+        <h2 id="delete-device-title">
+          {label} {hostname || "this device"}?
+        </h2>
         <p>
-          This removes the device credential and all controller inventory. A
-          running agent will be rejected the next time it connects and must be
-          re-enrolled.
+          {action === "delete"
+            ? "This removes the device credential and all controller inventory. A running agent will be rejected the next time it connects and must be re-enrolled."
+            : "This disables fleet access for this device identity and preserves its inventory and audit records. Existing gateway credentials may remain valid until they expire. This action cannot be undone here."}
         </p>
         {error && (
           <div className="dialog-error" role="alert">
@@ -403,7 +460,11 @@ function DeleteDeviceDialog({
             disabled={deleting}
             onClick={onConfirm}
           >
-            {deleting ? "Deleting…" : "Delete device"}
+            {deleting
+              ? action === "delete"
+                ? "Deleting…"
+                : "Applying…"
+              : `${label} device`}
           </button>
         )}
       </div>

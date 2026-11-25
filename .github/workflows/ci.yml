@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, release, "integration/**"]
   pull_request:
-    branches: [main]
+    branches: [main, release]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref_name) || github.sha }}
@@ -20,7 +21,7 @@ env:
 jobs:
   check:
     name: Test and lint
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +53,7 @@ jobs:
         uses: ./.github/actions/rust-build-cache
         with:
           cache-key: ci
-          save: ${{ github.ref == 'refs/heads/main' }}
+          save: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
 
       - name: Install nextest
         uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
@@ -63,6 +64,9 @@ jobs:
       - name: Build UI
         working-directory: frontend
         run: pnpm build
+
+      - name: Test legacy SQLite migrations
+        run: python3 scripts/test_legacy_migrations.py
 
       - name: Test Rust
         run: cargo nextest run --workspace
@@ -89,7 +93,7 @@ jobs:
 
   deny:
     name: Dependency advisories, licenses and sources
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,7 +132,7 @@ jobs:
         with:
           shared-key: ci-windows
           cache-workspace-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
 
       - name: Install nextest
         uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
@@ -140,7 +144,7 @@ jobs:
 
   headless-linux:
     name: Headless Linux static build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -162,7 +166,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ci-headless-linux
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
 
       - name: Build headless binary
         run: cargo build --locked --package agentdesktop-agent --bin agentdesktop-headless --target x86_64-unknown-linux-musl
@@ -172,7 +176,7 @@ jobs:
 
   container:
     name: Container
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -183,7 +187,7 @@ jobs:
 
   enrollment-e2e:
     name: Enrollment e2e
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

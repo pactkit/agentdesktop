@@ -13,6 +13,7 @@ import type {
   ControllerSettings,
   Device,
   DeviceDetail,
+  DeviceLifecycleAction,
   Overview,
   UsageRange,
   UsageReport,
@@ -143,7 +144,8 @@ function DevicePage({ id }: { id: string }) {
       utcOffsetMinutes: String(utcOffsetMinutes()),
     })}`,
   );
-  const [showDelete, setShowDelete] = useState(false);
+  const [deviceAction, setDeviceAction] =
+    useState<DeviceLifecycleAction | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [reauthenticate, setReauthenticate] = useState(false);
@@ -151,18 +153,22 @@ function DevicePage({ id }: { id: string }) {
 
   useEffect(() => () => deletion.current?.abort(), []);
 
-  async function deleteDevice() {
-    if (deletion.current) return;
+  async function changeDevice() {
+    if (deletion.current || !deviceAction) return;
     const controller = new AbortController();
     deletion.current = controller;
     setDeleting(true);
     setDeleteError(null);
     setReauthenticate(false);
     try {
-      await request(`/api/v1/devices/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        signal: controller.signal,
-      });
+      const path = `/api/v1/devices/${encodeURIComponent(id)}`;
+      await request(
+        deviceAction === "delete" ? path : `${path}/${deviceAction}`,
+        {
+          method: deviceAction === "delete" ? "DELETE" : "POST",
+          signal: controller.signal,
+        },
+      );
       if (!controller.signal.aborted) navigate("/devices");
     } catch (error) {
       if (
@@ -170,7 +176,9 @@ function DevicePage({ id }: { id: string }) {
         (error instanceof Error && error.name === "AbortError")
       )
         return;
-      setDeleteError(error instanceof Error ? error.message : "Delete failed");
+      setDeleteError(
+        error instanceof Error ? error.message : "Device operation failed",
+      );
       setReauthenticate(
         error instanceof ApiError && error.code === "reauthentication_required",
       );
@@ -191,18 +199,21 @@ function DevicePage({ id }: { id: string }) {
       }
       deleteError={deleteError}
       reauthenticate={reauthenticate}
-      deleteOpen={showDelete}
+      deleteOpen={deviceAction !== null}
       deleting={deleting}
       device={query.data}
+      lifecycleAction={deviceAction ?? "delete"}
+      canUpdate={session?.permissions?.includes("devices.update") ?? false}
+      onLifecycleRequest={setDeviceAction}
       onDeleteCancel={() => {
         if (!deleting) {
-          setShowDelete(false);
+          setDeviceAction(null);
           setDeleteError(null);
           setReauthenticate(false);
         }
       }}
-      onDeleteConfirm={deleteDevice}
-      onDeleteRequest={() => setShowDelete(true)}
+      onDeleteConfirm={changeDevice}
+      onDeleteRequest={() => setDeviceAction("delete")}
       usage={usage.data}
     />
   );

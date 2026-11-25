@@ -476,6 +476,9 @@ fn admin_read_covers_every_management_read_but_no_mutation() {
         (Verb::Read, "settings", true),
         (Verb::Read, "usage", true),
         (Verb::Delete, "devices", false),
+        (Verb::Update, "devices", false),
+        (Verb::Read, "device-audit", false),
+        (Verb::Read, "device-jobs", false),
         // Reads outside the catalog, such as an extension's policy, are not covered.
         (Verb::Read, "rbac.policy", false),
         (Verb::List, "settings", false),
@@ -550,6 +553,31 @@ async fn management_routes_check_precise_operations() {
             Method::DELETE,
             "/api/v1/devices/device-1",
             "devices.delete device-1",
+        ),
+        (
+            Method::GET,
+            "/api/v1/devices/device-1/lifecycle",
+            "devices.read device-1",
+        ),
+        (
+            Method::GET,
+            "/api/v1/devices/device-1/audit",
+            "device-audit.read device-1",
+        ),
+        (
+            Method::GET,
+            "/api/v1/devices/device-1/jobs",
+            "device-jobs.read device-1",
+        ),
+        (
+            Method::POST,
+            "/api/v1/devices/device-1/retire",
+            "devices.update device-1",
+        ),
+        (
+            Method::POST,
+            "/api/v1/devices/device-1/revoke",
+            "devices.update device-1",
         ),
         (Method::GET, "/api/v1/daemon-config", "daemon-config.read"),
         (Method::GET, "/api/v1/settings", "settings.read"),

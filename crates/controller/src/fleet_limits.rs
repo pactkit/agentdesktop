@@ -277,6 +277,7 @@ const RPC_CLASSES: &[(&str, RpcClass)] = &[
     ("RenewDeviceCertificate", RpcClass::Device),
     ("GetLlmGatewayCredential", RpcClass::Device),
     ("GetDeviceUsage", RpcClass::Device),
+    ("GetAgentCatalog", RpcClass::Device),
     ("Connect", RpcClass::Connect),
 ];
 

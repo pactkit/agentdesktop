@@ -56,6 +56,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "clap",
+ "flate2",
  "futures-util",
  "glob",
  "hostname",
@@ -82,6 +83,7 @@ dependencies = [
  "sha1",
  "sha2 0.11.1",
  "similar",
+ "tar",
  "tempfile",
  "testcontainers",
  "tokio",
@@ -159,6 +161,8 @@ name = "agentdesktop-core"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "aws-lc-rs",
+ "base64 0.23.1",
  "jiff 1.0.1",
  "rcgen",
  "reqwest",
@@ -169,6 +173,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_json_path_to_error",
+ "sha2 0.11.1",
  "tracing-appender",
  "tracing-subscriber",
  "url",
@@ -1830,6 +1835,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1fc6a637b6dc58414714eddd9170ff187ecb0933d4c7024d1abbd23a3cc26e9"
 dependencies = [
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -5860,6 +5875,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
 ]
 
 [[package]]

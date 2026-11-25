@@ -19,6 +19,8 @@ const now = Math.floor(Date.now() / 1000);
 export const macDevice: Device = {
   id: "device-mac-12345678",
   hostname: "dev-mac",
+  state: "active",
+  retired_at: null,
   os: "macos",
   architecture: "arm64",
   agent_version: "0.1.0",

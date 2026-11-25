@@ -68,6 +68,24 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "CatalogPublicKey": {
+      "description": "A public key pinned by the daemon or the controller.",
+      "type": "object",
+      "properties": {
+        "keyId": {
+          "type": "string"
+        },
+        "publicKey": {
+          "description": "Base64 raw 32-byte Ed25519 public key.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "keyId",
+        "publicKey"
+      ]
+    },
     "ClaudeCodeConfig": {
       "description": "Settings reconciled into Claude Code's managed configuration.\n\nArbitrary keys are written directly to Agentdesktop's managed-settings\ndrop-in. Generated gateway settings take precedence when values overlap.",
       "type": "object",
@@ -259,6 +277,13 @@
       "description": "Settings read only at local daemon startup. Paths use the process working directory.",
       "type": "object",
       "properties": {
+        "catalogPublicKeys": {
+          "description": "Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogPublicKey"
+          }
+        },
         "claudeCode": {
           "description": "Claude Code paths.",
           "$ref": "#/$defs/ToolConfigPath",
