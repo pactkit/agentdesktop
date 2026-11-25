@@ -288,6 +288,11 @@
       "description": "Signed agent catalog served by the controller.",
       "type": "object",
       "properties": {
+        "allowSelfServiceJobs": {
+          "description": "Permit authenticated users to request signed catalog jobs for their own device.",
+          "type": "boolean",
+          "default": false
+        },
         "path": {
           "description": "Path to the signed catalog JSON file. Relative to the controller configuration directory.",
           "type": "string"

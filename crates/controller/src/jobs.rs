@@ -241,6 +241,25 @@ pub struct JobSummary {
     pub attempt: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    pub deadline_unix_seconds: i64,
+    pub error_code: String,
+}
+
+impl JobSummary {
+    pub fn to_device_proto(&self) -> agentdesktop_proto::fleet::DeviceJobSummary {
+        agentdesktop_proto::fleet::DeviceJobSummary {
+            id: self.id.clone(),
+            agent_id: self.agent_id.clone(),
+            version: self.version.clone(),
+            action: self.action as i32,
+            state: self.state as i32,
+            attempt: u32::try_from(self.attempt).unwrap_or_default(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            deadline_unix_seconds: self.deadline_unix_seconds,
+            error_code: self.error_code.clone(),
+        }
+    }
 }
 
 fn now_seconds() -> anyhow::Result<i64> {
@@ -308,6 +327,20 @@ impl Database {
                 .execute(&mut *tx)
                 .await?;
         ensure!(active.rows_affected() == 1, "device is not active");
+        let existing: Option<JobRecord> = sqlx::query_as(
+            "SELECT * FROM agent_jobs WHERE device_id = $1 AND idempotency_key = $2",
+        )
+        .bind(&job.device_id).bind(&job.idempotency_key).fetch_optional(&mut *tx).await?;
+        if let Some(existing) = existing {
+            ensure!(same_request(&existing, job), "idempotency key already belongs to a different request");
+            tx.commit().await?;
+            return Ok(existing);
+        }
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM agent_jobs WHERE device_id = $1 AND state = $2",
+        )
+        .bind(&job.device_id).bind(JobState::Queued.proto_value()).fetch_one(&mut *tx).await?;
+        ensure!(count < 20, "device job queue is full");
         sqlx::query(
             "INSERT INTO agent_jobs
              (id,device_id,attempt,idempotency_key,origin,requested_by,catalog_id,
@@ -532,7 +565,8 @@ impl Database {
     }
 
     pub async fn list_device_jobs(&self, device_id: &str) -> anyhow::Result<Vec<JobSummary>> {
-        sqlx::query_as("SELECT id,device_id,agent_id,version,action,state,attempt,created_at,updated_at
+        sqlx::query_as("SELECT id,device_id,agent_id,version,action,state,attempt,created_at,updated_at,
+                        deadline_unix_seconds,error_code
                        FROM agent_jobs WHERE device_id = $1 ORDER BY created_at DESC,id DESC LIMIT 100")
             .bind(device_id).fetch_all(self.pool()).await.context("list device jobs")
     }

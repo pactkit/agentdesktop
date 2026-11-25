@@ -323,6 +323,8 @@ message ExchangeAgentJobRequest {
     bool poll = 1;
     JobStart start = 2;
     JobStatus report = 3;
+    bool list = 4;
+    SelfServiceJobRequest enqueue = 5;
   }
 }
 
@@ -334,4 +336,29 @@ message JobStart {
 message ExchangeAgentJobResponse {
   AgentJob job = 1;
   bool acknowledged = 2;
+  repeated DeviceJobSummary jobs = 3;
+  bool self_service_allowed = 4;
+}
+
+message SelfServiceJobRequest {
+  string agent_id = 1;
+  string version = 2;
+  JobAction action = 3;
+  string idempotency_key = 4;
+  uint64 deadline_unix_seconds = 5;
+  uint64 catalog_revision = 6;
+  string catalog_sha256 = 7;
+}
+
+message DeviceJobSummary {
+  string id = 1;
+  string agent_id = 2;
+  string version = 3;
+  JobAction action = 4;
+  JobState state = 5;
+  uint32 attempt = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+  int64 deadline_unix_seconds = 9;
+  string error_code = 10;
 }

@@ -18,6 +18,7 @@
 |`adminListener.limits.maxConnections`|integer|Open management connections allowed in total. At the limit, the connection idle the longest is closed to admit a new one. Defaults to `256`.|
 |`adminListener.listen`|string|Address on which the management listener accepts connections. Defaults to `127.0.0.1:8080`. Local access requires a loopback address.|
 |`agentCatalog`|object|Signed agent catalog served to enrolled devices.|
+|`agentCatalog.allowSelfServiceJobs`|boolean|Permit authenticated users to request signed catalog jobs for their own device.|
 |`agentCatalog.path`|string|Path to the signed catalog JSON file. Relative to the controller configuration directory.|
 |`agentCatalog.publicKeys`|[]object|Pinned Ed25519 public keys used to validate the file at load time.|
 |`agentCatalog.publicKeys[].keyId`|string||

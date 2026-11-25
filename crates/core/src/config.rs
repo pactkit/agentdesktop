@@ -556,6 +556,9 @@ pub struct ControllerAgentCatalogConfig {
     pub path: PathBuf,
     /// Pinned Ed25519 public keys used to validate the file at load time.
     pub public_keys: Vec<crate::catalog::CatalogPublicKey>,
+    /// Permit authenticated users to request signed catalog jobs for their own device.
+    #[serde(default)]
+    pub allow_self_service_jobs: bool,
 }
 
 /// Authentication and exposure policy for the management API and UI.
