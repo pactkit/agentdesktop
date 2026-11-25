@@ -8,6 +8,7 @@ pub mod enrollment_token;
 pub mod fleet_limits;
 pub mod gateway_jwt;
 pub mod http_listener;
+pub mod jobs;
 pub mod management;
 pub mod oidc;
 pub mod service;

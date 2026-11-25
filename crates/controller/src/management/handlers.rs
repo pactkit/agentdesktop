@@ -22,6 +22,7 @@ use super::{
 use crate::{
     database::{DeviceDetail, DeviceSummary},
     device_lifecycle::{DeviceLifecycle, LifecycleAudit, Target, Transition},
+    jobs::JobSummary,
     usage,
 };
 
@@ -140,6 +141,22 @@ pub(super) async fn device_lifecycle(
     })
     .await?;
     state.database.device_lifecycle(&device_id).await?.map(Json).ok_or(HandlerError::NotFound)
+}
+
+pub(super) async fn device_jobs(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<Vec<JobSummary>>, HandlerError> {
+    auth.require(AccessRequest {
+        verb: Verb::Read,
+        resource_class: authorization::DEVICE_JOBS,
+        resource: Some(&device_id),
+    }).await?;
+    if state.database.device_lifecycle(&device_id).await?.is_none() {
+        return Err(HandlerError::NotFound);
+    }
+    Ok(Json(state.database.list_device_jobs(&device_id).await?))
 }
 
 pub(super) async fn device_audit(

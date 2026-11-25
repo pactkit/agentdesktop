@@ -52,3 +52,15 @@ These are SQL behavior tests, not compiled Rust/SQLx/PostgreSQL or runtime tests
 No GitHub Actions runs were returned after enabling integration push triggers.
 
 Actions settings enabled by repository owner; a new integration push requests CI validation. No validation result is assumed from this push.
+
+## Job persistence recovery
+
+Restored historical wire value types (no live dispatch fields/RPCs yet) and
+controller state machine with device-bound, attempt-bound exact-state CAS,
+active-device transaction guard, deadline checks for dispatch/accept/start,
+request-aware idempotency and bounded per-device read API. The API requires
+explicit device-jobs.read; it excludes requester and diagnostics. No enqueue
+or dispatch endpoint is enabled. Old installer must not be blindly copied:
+it can replace unrelated launchers, trust unsafe receipt paths, and read an
+unbounded response before testing actual size. Repair those ownership,
+streaming, journal and scope boundaries before activating installation.
