@@ -1,0 +1,28 @@
+# Device lifecycle port (historical PR #2, part of PR #5 recovery)
+
+Base: release f3533ff. Preserve the current management authentication and
+enrollment RPCs; do not reintroduce admin.rs or legacy enrollment RPCs.
+
+Implemented: retirement/revocation, append-only transition audit, active-only
+fleet authentication, receipt replay rejection, lifecycle recheck before
+configuration delivery and every 15 seconds on open streams, tombstone
+protection, scoped lifecycle/audit API, and Controller UI controls/status.
+
+Security boundaries: existing gateway credentials expire normally; this does
+not revoke previously issued gateway tokens at the gateway. Re-enrollment with
+a new key, previous-device replacement, and device-limit enforcement require
+a subsequent authenticated enrollment-policy port. A 15-second poll is not
+instantaneous revocation, and an in-progress IdP request may delay rechecks.
+Management `devices.update` is required for retire/revoke. Audit access uses
+`device-audit.read`, not the umbrella `admin.read`. External auth providers
+must grant these explicitly; local loopback still uses the built-in provider.
+
+Migration versions 0001–0006 are unchanged; 0007–0010 restore the historical
+migration content. Existing legacy databases with previously applied conflicting
+migration IDs must not upgrade directly. No database has been migrated by this
+branch.
+
+Acceptance gates: cargo fmt, cargo test, management auth tests, PostgreSQL
+integration, real enrollment and active-stream revocation, frontend build and
+Storybook. Nothing is marked runtime verified. Catalog/installer/jobs,
+replacement enrollment and Desktop Assistant remain part of PR #5 recovery.

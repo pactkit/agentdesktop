@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, release]
   pull_request:
-    branches: [main]
+    branches: [main, release]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref_name) || github.sha }}
@@ -63,6 +63,9 @@ jobs:
       - name: Build UI
         working-directory: frontend
         run: pnpm build
+
+      - name: Test legacy SQLite migrations
+        run: python3 scripts/test_legacy_migrations.py
 
       - name: Test Rust
         run: cargo nextest run --workspace
