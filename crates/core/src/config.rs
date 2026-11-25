@@ -494,6 +494,9 @@ pub struct ControllerConnectionConfig {
     /// combined with `deviceAuthorization`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enrollment_token_path: Option<PathBuf>,
+    /// Optional previous device UUID to retire atomically during user enrollment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replace_device_id: Option<String>,
 }
 
 /// Startup configuration for the Agentdesktop fleet controller.
@@ -526,6 +529,9 @@ pub struct ControllerConfig {
     /// Signed agent catalog served to enrolled devices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_catalog: Option<ControllerAgentCatalogConfig>,
+    /// Maximum active devices per authenticated issuer and subject. Unset is unlimited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_devices_per_user: Option<u32>,
     /// LLM gateway JWT signing settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway_jwt: Option<ControllerGatewayJwtConfig>,
@@ -1695,6 +1701,12 @@ pub fn parse_controller(contents: &str) -> anyhow::Result<ControllerConfig> {
         ControllerAdminAccess::Local => {}
         ControllerAdminAccess::Authenticated(admin) => validate_admin_authenticated(admin)?,
     }
+    anyhow::ensure!(
+        config
+            .max_devices_per_user
+            .is_none_or(|limit| (1..=1000).contains(&limit)),
+        "maxDevicesPerUser must be between 1 and 1000"
+    );
     if let Some(catalog) = &config.agent_catalog {
         anyhow::ensure!(
             !catalog.path.as_os_str().is_empty(),
@@ -1889,6 +1901,23 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
         }
         if controller.ca_certificate_path.as_os_str().is_empty() {
             anyhow::bail!("controller.caCertificatePath cannot be empty");
+        }
+        if let Some(previous) = &controller.replace_device_id {
+            anyhow::ensure!(
+                controller.enrollment_token_path.is_none(),
+                "controller.replaceDeviceId cannot be combined with enrollmentTokenPath"
+            );
+            anyhow::ensure!(
+                previous.len() == 36
+                    && previous.bytes().enumerate().all(|(i, b)| {
+                        if matches!(i, 8 | 13 | 18 | 23) {
+                            b == b'-'
+                        } else {
+                            b.is_ascii_hexdigit()
+                        }
+                    }),
+                "controller.replaceDeviceId must be a UUID"
+            );
         }
         if controller.enrollment_token_path.is_some() && controller.device_authorization {
             anyhow::bail!(
@@ -3240,6 +3269,28 @@ oidc:
             configured.max_connections, 50_000,
             "unset fields keep defaults"
         );
+    }
+
+    #[test]
+    fn device_limit_is_optional_and_bounded() {
+        let mut config = admin_document();
+        assert!(
+            parse_controller(&config.to_string())
+                .unwrap()
+                .max_devices_per_user
+                .is_none()
+        );
+        config["maxDevicesPerUser"] = serde_json::json!(5);
+        assert_eq!(
+            parse_controller(&config.to_string())
+                .unwrap()
+                .max_devices_per_user,
+            Some(5)
+        );
+        for invalid in [0, 1001] {
+            config["maxDevicesPerUser"] = serde_json::json!(invalid);
+            assert!(parse_controller(&config.to_string()).is_err());
+        }
     }
 
     #[test]

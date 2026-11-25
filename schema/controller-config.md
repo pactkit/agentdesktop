@@ -55,6 +55,7 @@
 |`gatewayListener.limits.maxConnections`|integer|Open gateway connections allowed in total. At the limit, the connection idle the longest is closed to admit a new one. Defaults to `1024`.|
 |`gatewayListener.listen`|string|Address on which the gateway listener accepts connections. Defaults to `127.0.0.1:8444`.|
 |`gatewayListener.tls`|boolean|Serve HTTPS with the controller certificate from `tls` instead of plain HTTP. Use HTTPS unless gateways reach the listener over loopback or a trusted network: whoever can change the keys a gateway fetches can forge credentials it accepts.|
+|`maxDevicesPerUser`|integer|Maximum active devices per authenticated issuer and subject. Unset is unlimited.|
 |`oidc`|object|OpenID Connect settings used for device enrollment and authorization.|
 |`oidc.clientId`|string|Public OpenID Connect client identifier.|
 |`oidc.issuer`|string|Exact OpenID Connect issuer URL.|
