@@ -733,7 +733,15 @@ pub fn apply_program_choice<'a>(
     let mut opted_out = Vec::new();
     leave_out(claude_code, ClaudeCode::ID, choice, &mut opted_out);
     leave_out(claude_desktop, ClaudeDesktop::ID, choice, &mut opted_out);
-    leave_out(codex, Codex::ID, choice, &mut opted_out);
+    // A mandatory requirements entry must reach its provider even when an
+    // invalid config was constructed outside the YAML parser. The provider
+    // rejects this combination; local choice must not silently drop policy.
+    if !codex
+        .as_ref()
+        .is_some_and(|program| program.requirements.is_some())
+    {
+        leave_out(codex, Codex::ID, choice, &mut opted_out);
+    }
     leave_out(open_code, OpenCode::ID, choice, &mut opted_out);
     leave_out(grok, Grok::ID, choice, &mut opted_out);
     leave_out(copilot, Copilot::ID, choice, &mut opted_out);
@@ -1963,6 +1971,15 @@ programs:
                 .map(|program| (*program).to_owned())
                 .collect(),
         }
+    }
+
+    #[test]
+    fn local_choice_cannot_drop_requirements_from_an_invalid_config() {
+        let mut config = parse_daemon("programs: { codex: { requirements: {} } }").unwrap();
+        config.program_selection.allow_user_choice = true;
+        let (chosen, opted_out) = apply_program_choice(&config, &ProgramChoice::None);
+        assert!(chosen.programs.codex.is_some());
+        assert!(!opted_out.contains(&"codex"));
     }
 
     #[test]

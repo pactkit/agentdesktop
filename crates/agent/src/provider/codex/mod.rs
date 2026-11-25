@@ -8,6 +8,8 @@ use crate::reconcile::ReconcilePlan;
 
 pub(super) mod discovery;
 mod reconcile;
+#[cfg(unix)]
+pub(crate) mod requirements;
 
 #[derive(Clone)]
 pub struct Codex {
@@ -48,7 +50,31 @@ impl Provider for Codex {
                 .filter(|_| provider.use_llm_gateway);
             (provider, gateway)
         });
+        let native_requirements = config
+            .programs
+            .codex
+            .as_ref()
+            .and_then(|provider| provider.requirements.as_ref());
+        if native_requirements.is_some() {
+            anyhow::ensure!(
+                !config.program_selection.allow_user_choice,
+                "Codex requirements must not be subject to user opt-out"
+            );
+            if ctx.user_mode {
+                return Ok(ReconcilePlan::skipped(
+                    "Codex requirements require a system daemon; configuration left untouched",
+                ));
+            }
+            #[cfg(not(unix))]
+            return Ok(ReconcilePlan::skipped(
+                "Codex requirements are not supported by this daemon on this platform",
+            ));
+        }
         let plan = ReconcilePlan::default();
+        #[cfg(unix)]
+        if let Some(values) = native_requirements.filter(|values| !values.is_empty()) {
+            requirements::plan_system(&self.managed_config_path, values, &plan)?;
+        }
         reconcile::plan(
             &self.managed_config_path,
             &ctx.credential_helper,
@@ -58,6 +84,11 @@ impl Provider for Codex {
             configured,
             &plan,
         )?;
+        // Retire only on explicit administrative request, and after defaults.
+        #[cfg(unix)]
+        if let Some(values) = native_requirements.filter(|values| values.is_empty()) {
+            requirements::plan_system(&self.managed_config_path, values, &plan)?;
+        }
         Ok(plan)
     }
 }
@@ -70,6 +101,35 @@ pub fn default_codex_managed_config_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requirements_are_inactive_in_user_mode_and_leave_defaults_alone() {
+        let config = agentdesktop_core::config::parse_daemon(
+            "programs: { codex: { requirements: { allowed_approval_policies: [on-request] } } }",
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let defaults = dir.path().join("config.toml");
+        std::fs::write(&defaults, "model = \"local-model\"\n").unwrap();
+        let context = ReconcileContext {
+            merge_user_settings: true,
+            user_mode: true,
+            credential_helper: PathBuf::from("agentdesktop"),
+            socket: PathBuf::from("socket"),
+            llm_proxy: None,
+        };
+        let provider = Codex {
+            managed_config_path: defaults.clone(),
+        };
+        let plan = provider.plan(&context, &config).unwrap();
+        assert!(plan.inactive_reason().is_some());
+        plan.apply().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(defaults).unwrap(),
+            "model = \"local-model\"\n"
+        );
+        assert!(!dir.path().join("requirements.toml").exists());
+    }
 
     #[test]
     fn subscription_can_use_a_system_mode_credential_helper() {

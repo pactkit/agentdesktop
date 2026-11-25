@@ -1165,6 +1165,10 @@ pub struct CodexConfig {
     /// so null values cannot be reconciled.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub managed_config: BTreeMap<String, serde_json::Value>,
+    /// Native Codex requirements.toml values, managed in system mode on Unix.
+    /// Omit to preserve existing requirements; an empty object explicitly retires owned requirements.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirements: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// Settings reconciled into OpenCode's system-managed configuration.
@@ -1887,6 +1891,29 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
         if !usage.listen.ip().is_loopback() {
             anyhow::bail!("daemon.usage.listen must be a loopback address");
         }
+    }
+    if let Some(requirements) = config
+        .programs
+        .codex
+        .as_ref()
+        .and_then(|codex| codex.requirements.as_ref())
+    {
+        anyhow::ensure!(
+            !config.program_selection.allow_user_choice,
+            "programs.codex.requirements cannot be combined with programSelection.allowUserChoice"
+        );
+        fn contains_null(value: &serde_json::Value) -> bool {
+            match value {
+                serde_json::Value::Null => true,
+                serde_json::Value::Array(values) => values.iter().any(contains_null),
+                serde_json::Value::Object(values) => values.values().any(contains_null),
+                _ => false,
+            }
+        }
+        anyhow::ensure!(
+            !requirements.values().any(contains_null),
+            "programs.codex.requirements cannot contain null TOML values"
+        );
     }
     validate_daemon(
         config.llm_gateway.as_ref(),
@@ -3399,5 +3426,40 @@ programs:
             "programs:\n  pi: {}\n  claudeDesktop: {}\n  grok: {}\n  copilot: {}\n  vscode: {}",
         )
         .expect("each daemon manages the programs supported in its mode");
+    }
+}
+
+#[cfg(test)]
+mod codex_requirements_tests {
+    use super::parse_daemon;
+
+    #[test]
+    fn requirements_omission_and_explicit_retirement_are_distinct() {
+        let absent = parse_daemon("programs: { codex: {} }").unwrap();
+        assert!(absent.programs.codex.unwrap().requirements.is_none());
+        let retire = parse_daemon("programs: { codex: { requirements: {} } }").unwrap();
+        assert!(retire.programs.codex.unwrap().requirements.unwrap().is_empty());
+        let configured = parse_daemon(
+            "programs: { codex: { requirements: { allowed_approval_policies: [on-request] } } }",
+        )
+        .unwrap();
+        assert_eq!(
+            configured.programs.codex.unwrap().requirements.unwrap()["allowed_approval_policies"],
+            serde_json::json!(["on-request"])
+        );
+    }
+
+    #[test]
+    fn requirements_reject_opt_out_and_nested_null() {
+        assert!(
+            parse_daemon(
+                "programSelection: { allowUserChoice: true }\nprograms: { codex: { requirements: {} } }"
+            )
+            .is_err()
+        );
+        assert!(
+            parse_daemon("programs: { codex: { requirements: { permissions: { p: null } } } }")
+                .is_err()
+        );
     }
 }

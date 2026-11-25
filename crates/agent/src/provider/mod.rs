@@ -11,6 +11,7 @@ use agentdesktop_core::{
 
 use crate::reconcile::ReconcilePlan;
 
+pub mod capabilities;
 pub mod claude_code;
 pub mod claude_desktop;
 pub mod codex;
@@ -22,6 +23,7 @@ mod metadata;
 pub mod ollama;
 pub mod opencode;
 pub mod pi;
+pub(crate) mod policy_evidence;
 pub(crate) mod shared;
 pub mod vscode;
 
