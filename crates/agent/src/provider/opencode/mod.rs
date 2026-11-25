@@ -63,12 +63,64 @@ impl Provider for OpenCode {
     }
 }
 
+/// The native machine-wide configuration directory on this platform.
+#[cfg(target_os = "macos")]
+fn default_open_code_managed_dir() -> PathBuf {
+    PathBuf::from("/Library/Application Support/opencode")
+}
+
+#[cfg(windows)]
+fn default_open_code_managed_dir() -> PathBuf {
+    let program_data = std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+    program_data.join("opencode")
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn default_open_code_managed_dir() -> PathBuf {
+    PathBuf::from("/etc/opencode")
+}
+
 /// Returns the system-wide OpenCode managed configuration path.
 pub fn default_open_code_managed_config_path() -> PathBuf {
-    PathBuf::from("/etc/opencode/opencode.jsonc")
+    default_open_code_managed_dir().join("opencode.jsonc")
 }
 
 /// Returns the path of Agentdesktop's managed OpenCode credential plugin.
 pub fn default_open_code_plugin_path() -> PathBuf {
-    PathBuf::from("/etc/opencode/plugins/agentdesktop.js")
+    default_open_code_managed_dir()
+        .join("plugins")
+        .join("agentdesktop.js")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn managed_paths_share_the_native_system_directory() {
+        let config = default_open_code_managed_config_path();
+        let plugin = default_open_code_plugin_path();
+        let root = config.parent().unwrap();
+        assert!(root.is_absolute());
+        assert_eq!(config, root.join("opencode.jsonc"));
+        assert_eq!(plugin, root.join("plugins").join("agentdesktop.js"));
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            root,
+            std::path::Path::new("/Library/Application Support/opencode")
+        );
+        #[cfg(windows)]
+        {
+            let expected = std::env::var_os("ProgramData")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+            assert_eq!(root, expected.join("opencode"));
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        assert_eq!(root, std::path::Path::new("/etc/opencode"));
+    }
 }
