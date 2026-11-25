@@ -75,6 +75,8 @@ libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
+flate2 = "1"
+tar = "0.4"
 keyring-core.workspace = true
 plist = "1.10"
 

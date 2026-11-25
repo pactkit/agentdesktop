@@ -76,3 +76,17 @@ installer mutation. An ambiguous interrupted job is not retried automatically.
 No dispatch RPC, local install API or platform installer is wired yet. This
 is deliberately a non-live foundation until ownership-safe installation and
 runtime tests pass. No new package dependency is needed at this stage.
+
+## macOS user installer
+
+Reimplemented the single-binary tar.gz contract with exact derived receipt
+paths, user-only ownership checks, bounded decompression and executable
+payloads. Refuses foreign launchers and modified binaries; stages immutable
+version/hash payloads, records pending publication, and reconciles the journal
+against the exact observed launcher. Uninstall removes only the current
+verified receipt's binary/link, preserving unrelated and previous files.
+Older legacy receipt layouts are not adopted automatically. Previous immutable
+payload garbage collection and multi-binary packages remain intentionally
+unsupported. This is user-level, not protection against a malicious process
+running as the same UID; one daemon must own a state scope. Windows/Linux
+installers and dispatch wiring remain open. Native CI is required.
