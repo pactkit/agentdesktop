@@ -10,6 +10,7 @@
 |`controller.heartbeatInterval`|string|Interval between device heartbeats. Defaults to `30s`.|
 |`daemon`|object|Local daemon startup settings. Not accepted in controller-delivered policy.|
 |`daemon.allowCatalogJobs`|boolean|Enable signed catalog jobs in a local macOS user daemon. Defaults to false.|
+|`daemon.assistantModel`|string|Optional model for read-only diagnostics through the managed HTTPS gateway.|
 |`daemon.catalogPublicKeys`|[]object|Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.|
 |`daemon.catalogPublicKeys[].keyId`|string||
 |`daemon.catalogPublicKeys[].publicKey`|string|Base64 raw 32-byte Ed25519 public key.|

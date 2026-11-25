@@ -104,6 +104,9 @@ pub struct DaemonStartupConfig {
     /// Enable signed catalog jobs in a local macOS user daemon. Defaults to false.
     #[serde(default)]
     pub allow_catalog_jobs: bool,
+    /// Optional model for read-only diagnostics through the managed HTTPS gateway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_model: Option<String>,
     /// Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub catalog_public_keys: Vec<crate::catalog::CatalogPublicKey>,
@@ -1903,6 +1906,12 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
         }
     }
     if let Some(startup) = &config.daemon {
+        if let Some(model) = &startup.assistant_model {
+            anyhow::ensure!(
+                !model.is_empty() && model.len() <= 128 && !model.chars().any(char::is_whitespace),
+                "daemon.assistantModel must be a nonempty model identifier"
+            );
+        }
         crate::catalog::validate_public_keys(&startup.catalog_public_keys)?;
         anyhow::ensure!(
             !startup.allow_catalog_jobs || !startup.catalog_public_keys.is_empty(),

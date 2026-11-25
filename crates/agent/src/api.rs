@@ -212,6 +212,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/llm-gateway/login", post(llm_gateway_login))
         .route("/v1/usage", get(device_usage))
         .route("/v1/catalog-jobs", get(catalog_jobs).post(request_catalog_job))
+        .route("/v1/assistant", get(crate::assistant::status).post(crate::assistant::ask))
         .route("/v1/programs", get(programs))
         .route("/v1/programs/choice", post(change_program_choice))
         .layer(Extension(Arc::new(
@@ -636,7 +637,7 @@ async fn catalog_jobs(
     let Some(controller) = state.config.controller.as_ref() else { return Ok(Json(view)); };
     let Some(startup) = state.config.daemon.as_ref() else { return Ok(Json(view)); };
     let device_id = crate::identity::load_device_id(&state.state_dir.join("identity.json"))
-        .map_err(bad_gateway)?;
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "device identity unavailable".into()))?;
     let Some(device_id) = device_id else { return Ok(Json(view)); };
     if !startup.catalog_public_keys.is_empty() {
         let scope = agentdesktop_core::catalog::sha256_hex(

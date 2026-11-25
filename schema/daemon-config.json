@@ -282,6 +282,13 @@
           "type": "boolean",
           "default": false
         },
+        "assistantModel": {
+          "description": "Optional model for read-only diagnostics through the managed HTTPS gateway.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "catalogPublicKeys": {
           "description": "Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.",
           "type": "array",

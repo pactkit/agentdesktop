@@ -1,5 +1,6 @@
 pub use subscription_oauth::anthropic as anthropic_oauth;
 pub mod api;
+mod assistant;
 pub mod catalog;
 pub mod cli;
 pub mod daemon;

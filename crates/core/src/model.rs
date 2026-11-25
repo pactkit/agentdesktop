@@ -6,6 +6,25 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantStatus {
+    pub enabled: bool,
+    pub model: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssistantQuestion {
+    pub question: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantAnswer {
+    pub text: String,
+}
+
 /// Only catalog display metadata is exposed to the desktop, not artifact
 /// URLs, signatures, trust pins or local file paths.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
