@@ -308,7 +308,12 @@ fn file_digest(path: &Path) -> anyhow::Result<String> {
         ensure!(total <= MAX_BINARY_BYTES, "payload exceeds size limit");
         hasher.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    let mut digest = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        use std::fmt::Write as _;
+        let _ = write!(digest, "{byte:02x}");
+    }
+    Ok(digest)
 }
 
 fn extract_binary(artifact: &[u8], output: &mut File) -> anyhow::Result<()> {

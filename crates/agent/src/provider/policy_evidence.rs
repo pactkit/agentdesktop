@@ -149,9 +149,7 @@ pub fn collect(config: &DaemonConfig, discovery: &Discovery, scope: DaemonScope)
 
 #[cfg(unix)]
 fn digest(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-
-    format!("{:x}", Sha256::digest(bytes))
+    agentdesktop_core::catalog::sha256_hex(bytes)
 }
 
 #[cfg(unix)]

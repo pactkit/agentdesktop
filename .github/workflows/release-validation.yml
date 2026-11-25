@@ -65,7 +65,11 @@ jobs:
             python3 scripts/test_legacy_migrations.py
           fi
       - run: cargo test --locked -p agentdesktop-controller
-      - run: cargo fmt --all --check
-      - run: |
+      - name: Check formatting (also after test failure)
+        if: success() || failure()
+        run: cargo fmt --all --check
+      - name: Check generated schemas (also after test failure)
+        if: success() || failure()
+        run: |
           make generate-schema
           git diff --exit-code -- schema
