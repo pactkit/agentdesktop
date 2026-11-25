@@ -330,14 +330,19 @@ impl Database {
         &self,
         device_id: &str,
     ) -> anyhow::Result<Option<agentdesktop_proto::fleet::EnrollResponse>> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT response_json FROM enrollment_receipts WHERE device_id = $1")
-                .bind(device_id)
-                .fetch_optional(&self.pool)
-                .await
-                .context("load device enrollment receipt")?;
-        row.map(|(json,)| decode_enrollment_receipt(&json))
-            .transpose()
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT d.state, r.response_json FROM devices d
+             LEFT JOIN enrollment_receipts r ON r.device_id = d.id WHERE d.id = $1",
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("load device enrollment receipt")?;
+        match row {
+            Some((state, _)) if state != "active" => Err(crate::device_lifecycle::InactiveDevice.into()),
+            Some((_, Some(json))) => decode_enrollment_receipt(&json).map(Some),
+            _ => Ok(None),
+        }
     }
 
     /// Commits the device and its retry receipt together. Concurrent enrollments
@@ -380,6 +385,15 @@ impl Database {
         .bind(token.map(|token| token.id.as_str()))
         .execute(&mut *transaction)
         .await?;
+        // Lock the active row in this transaction before returning or storing
+        // a receipt. A retired/revoked deterministic device ID cannot enroll again.
+        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+            .bind(&response.device_id)
+            .execute(&mut *transaction)
+            .await?;
+        if active.rows_affected() != 1 {
+            return Err(crate::device_lifecycle::InactiveDevice.into());
+        }
         sqlx::query(
             "INSERT INTO enrollment_receipts (device_id, response_json)
              VALUES ($1, $2) ON CONFLICT (device_id) DO NOTHING",
@@ -409,12 +423,12 @@ impl Database {
         let (issuer, subject, idp_claims_json, token_issuer, token_id): Row = sqlx::query_as(
             "SELECT enrolled_by_issuer, enrolled_by_subject, idp_claims_json,
                     enrollment_token_issuer, enrollment_token_id
-             FROM devices WHERE id = $1",
+             FROM devices WHERE id = $1 AND state = 'active'",
         )
         .bind(device_id)
         .fetch_one(&self.pool)
         .await
-        .context("load device enrollment principal")?;
+        .context("load active device enrollment principal")?;
         let user = if issuer.is_empty() || subject.is_empty() {
             None
         } else {
@@ -560,7 +574,7 @@ impl Database {
     }
 
     pub async fn delete_device(&self, device_id: &str) -> anyhow::Result<bool> {
-        let result = sqlx::query("DELETE FROM devices WHERE id = $1")
+        let result = sqlx::query("DELETE FROM devices WHERE id = $1 AND state = 'active'")
             .bind(device_id)
             .execute(&self.pool)
             .await

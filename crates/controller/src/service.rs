@@ -306,6 +306,7 @@ impl FleetAgent for FleetAgentService {
 
 /// How often an open `Connect` stream checks its access token again.
 const ACCESS_TOKEN_RECHECK: Duration = Duration::from_secs(5 * 60);
+const DEVICE_STATE_RECHECK: Duration = Duration::from_secs(15);
 
 /// A device's `Connect` session, run by its own task. The task owns the
 /// response stream: it ends when the device's request stream ends, the device
@@ -324,13 +325,6 @@ struct ConnectSession {
 
 impl ConnectSession {
     async fn run(mut self) {
-        // Marked seen, so a change made since the subscription is sent once.
-        let current = self.daemon_updates.borrow_and_update().clone();
-        if let Some(config) = current
-            && self.send_config(config).is_break()
-        {
-            return;
-        }
         let enrolled = match self.database.device_principal(&self.device_id).await {
             Ok(principal) => principal,
             Err(error) => {
@@ -338,15 +332,29 @@ impl ConnectSession {
                 return;
             }
         };
+        // Recheck before initial delivery, including token-enrolled devices.
+        if self.recheck_device_state().await.is_break() {
+            return;
+        }
+        let current = self.daemon_updates.borrow_and_update().clone();
+        if let Some(config) = current
+            && self.send_config(config).is_break()
+        {
+            return;
+        }
         let mut recheck = time::interval(ACCESS_TOKEN_RECHECK);
         recheck.tick().await;
+        let mut lifecycle = time::interval(DEVICE_STATE_RECHECK);
+        lifecycle.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+        lifecycle.tick().await;
         loop {
             let next = tokio::select! {
                 _ = self.responses.closed() => ControlFlow::Break(()),
                 changed = self.daemon_updates.changed() => match changed {
-                    Ok(()) => self.forward_config(),
+                    Ok(()) => self.forward_config().await,
                     Err(_) => ControlFlow::Break(()),
                 },
+                _ = lifecycle.tick() => self.recheck_device_state().await,
                 _ = recheck.tick() => self.recheck_access_token(&enrolled).await,
                 // Waits while the device is over its message budget; the other
                 // branches keep running.
@@ -359,11 +367,29 @@ impl ConnectSession {
     }
 
     /// Sends the device the configuration that just changed.
-    fn forward_config(&mut self) -> ControlFlow<()> {
+    async fn forward_config(&mut self) -> ControlFlow<()> {
+        if self.recheck_device_state().await.is_break() {
+            return ControlFlow::Break(());
+        }
         let config = self.daemon_updates.borrow_and_update().clone();
         match config {
             Some(config) => self.send_config(config),
             None => ControlFlow::Continue(()),
+        }
+    }
+
+    /// Fail closed if the lifecycle cannot be verified. Existing streams
+    /// are checked independently of OIDC (including token-enrolled devices).
+    async fn recheck_device_state(&self) -> ControlFlow<()> {
+        match time::timeout(
+            Duration::from_secs(5),
+            self.database.device_lifecycle(&self.device_id),
+        )
+        .await
+        {
+            Ok(Ok(Some(device))) if device.state == "active" => ControlFlow::Continue(()),
+            Ok(Ok(_)) => self.close(Status::permission_denied("device is no longer active")),
+            _ => self.close(Status::unavailable("device lifecycle unavailable")),
         }
     }
 
@@ -551,7 +577,7 @@ impl FleetAgentService {
             .database
             .enrollment_receipt(&device_id)
             .await
-            .map_err(internal)?
+            .map_err(enrollment_storage_error)?
         {
             return Ok(Response::new(response));
         }
@@ -573,7 +599,7 @@ impl FleetAgentService {
                 },
             )
             .await
-            .map_err(internal)?;
+            .map_err(enrollment_storage_error)?;
         match &completed.credential {
             EnrollmentCredential::User(user) => info!(
                 %device_id,
@@ -758,6 +784,14 @@ fn bearer_credential(metadata: &tonic::metadata::MetadataMap) -> Result<&str, St
     value
         .strip_prefix("Bearer ")
         .ok_or_else(|| Status::unauthenticated("invalid OIDC access token"))
+}
+
+fn enrollment_storage_error(err: anyhow::Error) -> Status {
+    if err.is::<crate::device_lifecycle::InactiveDevice>() {
+        Status::permission_denied("device is no longer active")
+    } else {
+        internal(err)
+    }
 }
 
 fn internal(err: anyhow::Error) -> Status {

@@ -2,6 +2,7 @@ pub mod application;
 pub mod daemon_config;
 pub mod database;
 pub mod device_ca;
+pub(crate) mod device_lifecycle;
 pub mod enrollment_token;
 pub mod fleet_limits;
 pub mod gateway_jwt;
