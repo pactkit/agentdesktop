@@ -24,7 +24,10 @@ lineage will still fail SQLx migration validation. Do not edit its migration
 ledger, disable checksum verification, or deploy this branch to such a
 database. Its upgrade needs a separately tested backup, schema/data mapping
 and migration reconciliation procedure. No historical deployment state has
-been inspected. The migration SQL is unchanged; integration tests are pending.
+been inspected. The migration SQL is unchanged. SQLite smoke tests passed for fresh 0001–0010
+and 0006→0010 with enrollment data retained and audit subject backfilled;
+all ten source SQL blobs matched the remote tree. SQLx migration-ledger,
+PostgreSQL and application integration tests remain pending.
 
 ## Remaining compatibility work
 
@@ -35,7 +38,13 @@ been inspected. The migration SQL is unchanged; integration tests are pending.
   current transaction behavior. Test revocation, deletion, re-enrollment,
   migration compatibility and audit continuity.
 - Fleet protocol: retain current enrollment and status fields, allocate
-  noncolliding protobuf tags and integrate agent jobs/catalog messages.
+  existing protobuf tags and integrate agent jobs/catalog messages. Historical
+  AgentMessage tags 6/7, ControllerMessage tag 2 and Hello tag 6 are unused by
+  release and can be retained. The actual breaking change is the old
+  BeginEnrollment/CompleteEnrollment RPC pair versus the current
+  GetLoginConfiguration/EnrollDevice flow. Preserve current authentication
+  and enrollment receipts; port previous-device replacement semantics into
+  the current authenticated flow, not the old enrollment protocol.
 - Endpoint: merge catalog/installer/job handling with current remote stream,
   identity, subscriptions, and reconciliation; preserve policy enforcement.
 - Desktop: adapt the historical agent management and assistant UI to current
