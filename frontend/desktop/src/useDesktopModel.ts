@@ -30,7 +30,7 @@ import type {
   Settings,
 } from "./types";
 
-export type View = "home" | "tools" | "usage" | "settings";
+export type View = "home" | "tools" | "agents" | "assistant" | "usage" | "settings";
 export type Notice = { tone: "success" | "error"; message: string } | null;
 
 type StatusSource = "connector" | "managedDevice" | "discovery" | "programs";
@@ -408,7 +408,11 @@ export function useDesktopModel() {
           ? "Status"
           : view === "usage"
             ? "Usage"
-            : "Tools";
+            : view === "agents"
+              ? "Agent management"
+              : view === "assistant"
+                ? "Troubleshooting"
+                : "Tools";
 
   return {
     bootstrap,
