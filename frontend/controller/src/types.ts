@@ -15,9 +15,13 @@ export type AdminSession = {
   permissions?: string[];
 };
 
+export type DeviceLifecycleAction = "delete" | "retire" | "revoke";
+
 export type Device = {
   id: string;
   hostname: string;
+  state?: string;
+  retired_at?: number | null;
   os: string;
   architecture: string;
   agent_version: string;

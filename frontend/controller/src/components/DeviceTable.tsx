@@ -54,7 +54,7 @@ export function DeviceTable({
                 </div>
               </td>
               <td>
-                <OnlineBadge timestamp={device.last_seen_at} />
+                <OnlineBadge timestamp={device.last_seen_at} state={device.state} />
               </td>
               <td>
                 <div className="cell-stack">
@@ -108,7 +108,14 @@ export function DefinitionList({
   );
 }
 
-export function OnlineBadge({ timestamp }: { timestamp: number | null }) {
+export function OnlineBadge({ timestamp, state }: { timestamp: number | null; state?: string }) {
+  if (state && state !== "active") {
+    return (
+      <span className={`badge ${state === "revoked" ? "danger" : "neutral"}`}>
+        {state === "revoked" ? "Revoked" : state === "retired" ? "Retired" : "Unknown state"}
+      </span>
+    );
+  }
   const online = timestamp !== null && Date.now() / 1000 - timestamp <= 90;
   return (
     <span className={`badge ${online ? "success" : "neutral"}`}>
