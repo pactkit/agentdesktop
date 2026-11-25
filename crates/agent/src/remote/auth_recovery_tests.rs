@@ -208,6 +208,7 @@ impl Fixture {
             let (current, _current_receiver) = watch::channel(None);
             let mut channels = ConfigChannels {
                 catalog_public_keys: Vec::new(),
+                job_home: None,
                 current,
                 tick_statuses: None,
             };

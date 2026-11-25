@@ -101,6 +101,9 @@ pub struct DaemonStartupConfig {
     /// Pi paths.
     #[serde(default)]
     pub pi: PiStartupConfig,
+    /// Enable signed catalog jobs in a local macOS user daemon. Defaults to false.
+    #[serde(default)]
+    pub allow_catalog_jobs: bool,
     /// Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub catalog_public_keys: Vec<crate::catalog::CatalogPublicKey>,
@@ -1898,6 +1901,10 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
     }
     if let Some(startup) = &config.daemon {
         crate::catalog::validate_public_keys(&startup.catalog_public_keys)?;
+        anyhow::ensure!(
+            !startup.allow_catalog_jobs || !startup.catalog_public_keys.is_empty(),
+            "daemon.allowCatalogJobs requires locally pinned catalog keys"
+        );
         anyhow::ensure!(
             startup.catalog_public_keys.is_empty() || config.controller.is_some(),
             "daemon.catalogPublicKeys requires a controller"

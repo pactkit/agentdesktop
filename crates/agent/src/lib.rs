@@ -10,6 +10,7 @@ pub mod identity;
 pub mod installer;
 mod inventory_watch;
 pub mod jobs;
+mod job_worker;
 mod llm_proxy;
 pub mod manifest;
 pub mod oidc;
