@@ -47,10 +47,12 @@ impl AccessRequest<'_> {
     }
 
     /// Whether `admin.read`, the umbrella read permission, grants this operation:
-    /// every non-mutating operation in `OPERATIONS`, but no mutation and nothing
+    /// every ordinary non-mutating operation in `OPERATIONS`, except device audit,
+    /// but no mutation and nothing
     /// outside it (such as an extension's own reads).
     pub fn covered_by_admin_read(&self) -> bool {
         !self.verb.is_mutation()
+            && self.resource_class != DEVICE_AUDIT
             && OPERATIONS
                 .iter()
                 .any(|&(verb, class)| verb == self.verb && class == self.resource_class)
@@ -58,22 +60,25 @@ impl AccessRequest<'_> {
 }
 
 /// The management console. `admin.read` admits a user to it and is the umbrella read
-/// permission: it also grants every other read in `OPERATIONS`
+/// permission: it also grants ordinary reads in `OPERATIONS` (except device audit)
 /// (see `AccessRequest::covered_by_admin_read`).
 pub const ADMIN: &str = "admin";
 pub const DEVICES: &str = "devices";
+/// Audit actors are sensitive; require an explicit grant even for admin.read.
+pub const DEVICE_AUDIT: &str = "device-audit";
 pub const DAEMON_CONFIG: &str = "daemon-config";
 pub const SETTINGS: &str = "settings";
 pub const USAGE: &str = "usage";
 
 /// Every operation checked by the management handlers. Local access grants all of
 /// them; providers with their own permission catalogs can build on this list.
-/// `admin.read` covers every read here, so a new read is granted to all its holders.
+/// `admin.read` covers ordinary reads here, but device audit requires an explicit grant.
 pub const OPERATIONS: &[(Verb, &str)] = &[
     (Verb::Read, ADMIN),
     (Verb::List, DEVICES),
     (Verb::Read, DEVICES),
     (Verb::Update, DEVICES),
+    (Verb::Read, DEVICE_AUDIT),
     (Verb::Delete, DEVICES),
     (Verb::Read, DAEMON_CONFIG),
     (Verb::Read, SETTINGS),

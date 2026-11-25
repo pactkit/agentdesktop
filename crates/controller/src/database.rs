@@ -28,6 +28,8 @@ pub struct DevicePrincipal {
 pub struct DeviceSummary {
     pub id: String,
     pub hostname: String,
+    pub state: String,
+    pub retired_at: Option<i64>,
     pub os: String,
     pub architecture: String,
     pub agent_version: String,
@@ -51,6 +53,8 @@ pub struct DeviceSummary {
 struct DeviceRow {
     id: String,
     hostname: String,
+    state: String,
+    retired_at: Option<i64>,
     os: String,
     architecture: String,
     agent_version: String,
@@ -71,6 +75,8 @@ impl From<DeviceRow> for DeviceSummary {
         Self {
             id: row.id,
             hostname: row.hostname,
+            state: row.state,
+            retired_at: row.retired_at,
             os: row.os,
             architecture: row.architecture,
             agent_version: row.agent_version,
@@ -452,7 +458,7 @@ impl Database {
 
     pub async fn list_devices(&self) -> anyhow::Result<Vec<DeviceSummary>> {
         let rows: Vec<DeviceRow> = sqlx::query_as(
-            "SELECT d.id, d.hostname, d.os, d.architecture, d.agent_version,
+            "SELECT d.id, d.hostname, d.state, d.retired_at, d.os, d.architecture, d.agent_version,
                     d.created_at, d.last_seen_at, d.enrolled_by_issuer,
                     d.enrolled_by_subject, d.idp_claims_json, cs.revision AS config_revision,
                     cs.state AS config_state, cs.error AS config_error,
@@ -460,7 +466,7 @@ impl Database {
              FROM devices d
              LEFT JOIN device_config_status cs ON cs.device_id = d.id
              LEFT JOIN discoveries x ON x.device_id = d.id
-             GROUP BY d.id, d.hostname, d.os, d.architecture, d.agent_version,
+             GROUP BY d.id, d.hostname, d.state, d.retired_at, d.os, d.architecture, d.agent_version,
                       d.created_at, d.last_seen_at, d.enrolled_by_issuer,
                       d.enrolled_by_subject, d.idp_claims_json, cs.revision, cs.state,
                       cs.error, cs.updated_at
@@ -487,7 +493,7 @@ impl Database {
 
     pub async fn get_device(&self, device_id: &str) -> anyhow::Result<Option<DeviceDetail>> {
         let device: Option<DeviceRow> = sqlx::query_as(
-            "SELECT d.id, d.hostname, d.os, d.architecture, d.agent_version,
+            "SELECT d.id, d.hostname, d.state, d.retired_at, d.os, d.architecture, d.agent_version,
                     d.created_at, d.last_seen_at, d.enrolled_by_issuer,
                     d.enrolled_by_subject, d.idp_claims_json, cs.revision AS config_revision,
                     cs.state AS config_state, cs.error AS config_error,
@@ -496,7 +502,7 @@ impl Database {
              LEFT JOIN device_config_status cs ON cs.device_id = d.id
              LEFT JOIN discoveries x ON x.device_id = d.id
              WHERE d.id = $1
-             GROUP BY d.id, d.hostname, d.os, d.architecture, d.agent_version,
+             GROUP BY d.id, d.hostname, d.state, d.retired_at, d.os, d.architecture, d.agent_version,
                       d.created_at, d.last_seen_at, d.enrolled_by_issuer,
                       d.enrolled_by_subject, d.idp_claims_json, cs.revision, cs.state,
                       cs.error, cs.updated_at",

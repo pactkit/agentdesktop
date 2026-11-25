@@ -21,7 +21,7 @@ use super::{
 };
 use crate::{
     database::{DeviceDetail, DeviceSummary},
-    device_lifecycle::{DeviceLifecycle, Target, Transition},
+    device_lifecycle::{DeviceLifecycle, LifecycleAudit, Target, Transition},
     usage,
 };
 
@@ -57,9 +57,8 @@ pub(super) async fn overview(
     let online_devices = devices
         .iter()
         .filter(|device| {
-            device
-                .last_seen_at
-                .is_some_and(|last_seen| now - last_seen <= 90)
+            device.state == "active"
+                && device.last_seen_at.is_some_and(|last_seen| now - last_seen <= 90)
         })
         .count();
     let config_failures = devices
@@ -141,6 +140,23 @@ pub(super) async fn device_lifecycle(
     })
     .await?;
     state.database.device_lifecycle(&device_id).await?.map(Json).ok_or(HandlerError::NotFound)
+}
+
+pub(super) async fn device_audit(
+    State(state): State<ManagementState>,
+    auth: Context,
+    Path(device_id): Path<String>,
+) -> Result<Json<Vec<LifecycleAudit>>, HandlerError> {
+    auth.require(AccessRequest {
+        verb: Verb::Read,
+        resource_class: authorization::DEVICE_AUDIT,
+        resource: Some(&device_id),
+    })
+    .await?;
+    if state.database.device_lifecycle(&device_id).await?.is_none() {
+        return Err(HandlerError::NotFound);
+    }
+    Ok(Json(state.database.lifecycle_audit(&device_id).await?))
 }
 
 pub(super) async fn retire_device(

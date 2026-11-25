@@ -22,6 +22,14 @@ pub(crate) struct DeviceLifecycle {
     pub replaces_device_id: Option<String>,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub(crate) struct LifecycleAudit {
+    pub id: String,
+    pub actor: String,
+    pub action: String,
+    pub created_at: i64,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Target {
     Retired,
@@ -60,6 +68,18 @@ impl Database {
         .fetch_optional(self.pool())
         .await
         .context("load device lifecycle")
+    }
+
+    /// Bounded, per-device audit history; never return claims or raw payloads.
+    pub(crate) async fn lifecycle_audit(&self, id: &str) -> anyhow::Result<Vec<LifecycleAudit>> {
+        sqlx::query_as(
+            "SELECT id, actor, action, created_at FROM audit_events
+             WHERE device_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100",
+        )
+        .bind(id)
+        .fetch_all(self.pool())
+        .await
+        .context("load device lifecycle audit")
     }
 
     /// The conditional update and audit insert share a transaction. Repeated
@@ -128,6 +148,34 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn revoked_enrollment_receipt_cannot_be_reissued() {
+        use crate::oidc::{CompletedEnrollment, EnrolledUser, EnrollmentCredential};
+        use agentdesktop_proto::fleet::EnrollResponse;
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::connect(&format!("sqlite://{}?mode=rwc", dir.path().join("receipt.db").display()))
+            .await.unwrap();
+        let completed = CompletedEnrollment {
+            hostname: "host".into(),
+            credential: EnrollmentCredential::User(EnrolledUser {
+                issuer: "issuer".into(),
+                subject: "subject".into(),
+                idp_claims: Default::default(),
+            }),
+        };
+        let response = EnrollResponse {
+            device_id: "device".into(),
+            client_certificate_pem: b"test certificate".to_vec(),
+            client_certificate_expires_at_unix_seconds: 100,
+        };
+        db.finish_enrollment(&completed, &response).await.unwrap();
+        assert_eq!(db.enrollment_receipt("device").await.unwrap(), Some(response.clone()));
+        db.transition_device("device", Target::Revoked, &Principal::local()).await.unwrap();
+        assert!(db.enrollment_receipt("device").await.unwrap_err().is::<InactiveDevice>());
+        assert!(db.finish_enrollment(&completed, &response).await.unwrap_err().is::<InactiveDevice>());
+        assert_eq!(db.device_lifecycle("device").await.unwrap().unwrap().state, "revoked");
+    }
+
+    #[tokio::test]
     async fn retirement_and_revocation_preserve_records_and_are_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let db = Database::connect(&format!("sqlite://{}?mode=rwc", dir.path().join("lifecycle.db").display()))
@@ -146,5 +194,8 @@ mod tests {
             .fetch_one(db.pool()).await.unwrap();
         assert_eq!(count, 2);
         assert_eq!(db.device_lifecycle("device").await.unwrap().unwrap().state, "revoked");
+        assert_eq!(db.list_devices().await.unwrap()[0].state, "revoked");
+        assert_eq!(db.get_device("device").await.unwrap().unwrap().device.state, "revoked");
+        assert_eq!(db.lifecycle_audit("device").await.unwrap().len(), 2);
     }
 }

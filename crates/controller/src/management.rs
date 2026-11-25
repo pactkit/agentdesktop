@@ -35,7 +35,7 @@ use auth::{
     authorization::{self, AccessRequest, Verb},
 };
 use handlers::{
-    api_not_found, daemon_config, delete_device, device, device_lifecycle, devices, overview,
+    api_not_found, daemon_config, delete_device, device, device_audit, device_lifecycle, devices, overview,
     retire_device, revoke_device, settings, usage_report,
 };
 
@@ -187,6 +187,7 @@ pub fn router(
             api(get(device).delete(delete_device)),
         )
         .route("/api/v1/devices/{device_id}/lifecycle", api(get(device_lifecycle)))
+        .route("/api/v1/devices/{device_id}/audit", api(get(device_audit)))
         .route("/api/v1/devices/{device_id}/retire", api(post(retire_device)))
         .route("/api/v1/devices/{device_id}/revoke", api(post(revoke_device)))
         .route("/api/v1/settings", api(get(settings)))
