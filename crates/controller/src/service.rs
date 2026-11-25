@@ -158,18 +158,26 @@ impl FleetAgent for FleetAgentService {
             }
             None => return Err(Status::invalid_argument("missing enrollment credential")),
         };
-        let previous = metadata.get("x-agentdesktop-replaces-device")
-            .map(|value| value.to_str().map_err(|_| Status::invalid_argument("invalid replacement identity")))
+        let previous = metadata
+            .get("x-agentdesktop-replaces-device")
+            .map(|value| {
+                value
+                    .to_str()
+                    .map_err(|_| Status::invalid_argument("invalid replacement identity"))
+            })
             .transpose()?;
         if let Some(previous) = previous {
             if Uuid::parse_str(previous).is_err() {
                 return Err(Status::invalid_argument("invalid replacement identity"));
             }
             if !matches!(&completed.credential, EnrollmentCredential::User(_)) {
-                return Err(Status::permission_denied("token enrollment cannot replace a device"));
+                return Err(Status::permission_denied(
+                    "token enrollment cannot replace a device",
+                ));
             }
         }
-        self.issue_enrolled_device(&completed, &csr_der, previous).await
+        self.issue_enrolled_device(&completed, &csr_der, previous)
+            .await
     }
 
     async fn renew_device_certificate(
@@ -641,9 +649,19 @@ impl FleetAgentService {
             .map_err(enrollment_storage_error)?
         {
             if let Some(previous) = previous {
-                let lifecycle = self.database.device_lifecycle(&device_id).await.map_err(internal)?;
-                if lifecycle.and_then(|device| device.replaces_device_id).as_deref() != Some(previous) {
-                    return Err(Status::failed_precondition("enrollment retry has a different replacement identity"));
+                let lifecycle = self
+                    .database
+                    .device_lifecycle(&device_id)
+                    .await
+                    .map_err(internal)?;
+                if lifecycle
+                    .and_then(|device| device.replaces_device_id)
+                    .as_deref()
+                    != Some(previous)
+                {
+                    return Err(Status::failed_precondition(
+                        "enrollment retry has a different replacement identity",
+                    ));
                 }
             }
             return Ok(Response::new(response));

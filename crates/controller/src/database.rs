@@ -360,7 +360,8 @@ impl Database {
         completed: &CompletedEnrollment,
         response: &agentdesktop_proto::fleet::EnrollResponse,
     ) -> anyhow::Result<agentdesktop_proto::fleet::EnrollResponse> {
-        self.finish_enrollment_with_policy(completed, response, None, None).await
+        self.finish_enrollment_with_policy(completed, response, None, None)
+            .await
     }
 
     pub async fn finish_enrollment_with_policy(
@@ -387,17 +388,29 @@ impl Database {
         .context("encode device enrollment receipt")?;
         let mut transaction = self.pool.begin().await?;
         if previous.is_some() && user.is_none() {
-            return Err(EnrollmentPolicyDenied("only an authenticated user may replace a device").into());
+            return Err(
+                EnrollmentPolicyDenied("only an authenticated user may replace a device").into(),
+            );
         }
         if let Some(user) = user {
             // Serialize enrollments for the same issuer/subject across controller
             // replicas, not just within a process or SQLite connection.
-            sqlx::query("INSERT INTO enrollment_subject_locks (issuer, subject)
-                         VALUES ($1, $2) ON CONFLICT (issuer, subject) DO NOTHING")
-                .bind(&user.issuer).bind(&user.subject).execute(&mut *transaction).await?;
-            sqlx::query("UPDATE enrollment_subject_locks SET subject = subject
-                         WHERE issuer = $1 AND subject = $2")
-                .bind(&user.issuer).bind(&user.subject).execute(&mut *transaction).await?;
+            sqlx::query(
+                "INSERT INTO enrollment_subject_locks (issuer, subject)
+                         VALUES ($1, $2) ON CONFLICT (issuer, subject) DO NOTHING",
+            )
+            .bind(&user.issuer)
+            .bind(&user.subject)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "UPDATE enrollment_subject_locks SET subject = subject
+                         WHERE issuer = $1 AND subject = $2",
+            )
+            .bind(&user.issuer)
+            .bind(&user.subject)
+            .execute(&mut *transaction)
+            .await?;
         }
         let inserted = sqlx::query(
             "INSERT INTO devices
@@ -416,7 +429,9 @@ impl Database {
         .bind(token.map(|token| token.issuer.as_str()))
         .bind(token.map(|token| token.id.as_str()))
         .execute(&mut *transaction)
-        .await?.rows_affected() == 1;
+        .await?
+        .rows_affected()
+            == 1;
         // Lock the active row in this transaction before returning or storing
         // a receipt. A retired/revoked deterministic device ID cannot enroll again.
         let active =
@@ -431,48 +446,79 @@ impl Database {
             if inserted {
                 if let Some(previous) = previous {
                     if previous == response.device_id {
-                        return Err(EnrollmentPolicyDenied("replacement must identify another active device").into());
+                        return Err(EnrollmentPolicyDenied(
+                            "replacement must identify another active device",
+                        )
+                        .into());
                     }
                     let retired = sqlx::query(
                         "UPDATE devices SET state = 'retired', retired_at = $3, superseded_by = $2
                          WHERE id = $1 AND state = 'active' AND enrolled_by_issuer = $4
                          AND enrolled_by_subject = $5 AND enrollment_token_id IS NULL",
                     )
-                    .bind(previous).bind(&response.device_id).bind(unix_time_seconds())
-                    .bind(&user.issuer).bind(&user.subject).execute(&mut *transaction).await?;
+                    .bind(previous)
+                    .bind(&response.device_id)
+                    .bind(unix_time_seconds())
+                    .bind(&user.issuer)
+                    .bind(&user.subject)
+                    .execute(&mut *transaction)
+                    .await?;
                     if retired.rows_affected() != 1 {
-                        return Err(EnrollmentPolicyDenied("replacement device is not an active device of this user").into());
+                        return Err(EnrollmentPolicyDenied(
+                            "replacement device is not an active device of this user",
+                        )
+                        .into());
                     }
                     sqlx::query("UPDATE devices SET replaces_device_id = $2 WHERE id = $1")
-                        .bind(&response.device_id).bind(previous).execute(&mut *transaction).await?;
+                        .bind(&response.device_id)
+                        .bind(previous)
+                        .execute(&mut *transaction)
+                        .await?;
                     let actor = serde_json::to_string(&(&user.issuer, &user.subject))?;
                     let payload = serde_json::to_string(&serde_json::json!({
                         "replacement_device_id": response.device_id,
                     }))?;
-                    sqlx::query("INSERT INTO audit_events
+                    sqlx::query(
+                        "INSERT INTO audit_events
                          (id, actor, action, device_id, payload_json, created_at, subject)
-                         VALUES ($1,$2,'device_replaced',$3,$4,$5,$6)")
-                        .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(previous)
-                        .bind(payload).bind(unix_time_seconds()).bind(&user.subject)
-                        .execute(&mut *transaction).await?;
+                         VALUES ($1,$2,'device_replaced',$3,$4,$5,$6)",
+                    )
+                    .bind(uuid::Uuid::new_v4().to_string())
+                    .bind(actor)
+                    .bind(previous)
+                    .bind(payload)
+                    .bind(unix_time_seconds())
+                    .bind(&user.subject)
+                    .execute(&mut *transaction)
+                    .await?;
                 }
                 if let Some(limit) = max_devices {
                     let count: i64 = sqlx::query_scalar(
                         "SELECT COUNT(*) FROM devices WHERE enrolled_by_issuer = $1
                          AND enrolled_by_subject = $2 AND state = 'active'",
                     )
-                    .bind(&user.issuer).bind(&user.subject).fetch_one(&mut *transaction).await?;
+                    .bind(&user.issuer)
+                    .bind(&user.subject)
+                    .fetch_one(&mut *transaction)
+                    .await?;
                     if count > i64::from(limit) {
-                        return Err(EnrollmentPolicyDenied("active device limit reached; retire or replace a device").into());
+                        return Err(EnrollmentPolicyDenied(
+                            "active device limit reached; retire or replace a device",
+                        )
+                        .into());
                     }
                 }
             } else if let Some(previous) = previous {
-                let existing: (Option<String>,) = sqlx::query_as(
-                    "SELECT replaces_device_id FROM devices WHERE id = $1",
-                )
-                .bind(&response.device_id).fetch_one(&mut *transaction).await?;
+                let existing: (Option<String>,) =
+                    sqlx::query_as("SELECT replaces_device_id FROM devices WHERE id = $1")
+                        .bind(&response.device_id)
+                        .fetch_one(&mut *transaction)
+                        .await?;
                 if existing.0.as_deref() != Some(previous) {
-                    return Err(EnrollmentPolicyDenied("enrollment retry has a different replacement identity").into());
+                    return Err(EnrollmentPolicyDenied(
+                        "enrollment retry has a different replacement identity",
+                    )
+                    .into());
                 }
             }
         }

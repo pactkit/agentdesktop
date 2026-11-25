@@ -1701,8 +1701,12 @@ pub fn parse_controller(contents: &str) -> anyhow::Result<ControllerConfig> {
         ControllerAdminAccess::Local => {}
         ControllerAdminAccess::Authenticated(admin) => validate_admin_authenticated(admin)?,
     }
-    anyhow::ensure!(config.max_devices_per_user.is_none_or(|limit| (1..=1000).contains(&limit)),
-        "maxDevicesPerUser must be between 1 and 1000");
+    anyhow::ensure!(
+        config
+            .max_devices_per_user
+            .is_none_or(|limit| (1..=1000).contains(&limit)),
+        "maxDevicesPerUser must be between 1 and 1000"
+    );
     if let Some(catalog) = &config.agent_catalog {
         anyhow::ensure!(
             !catalog.path.as_os_str().is_empty(),
@@ -1899,11 +1903,21 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
             anyhow::bail!("controller.caCertificatePath cannot be empty");
         }
         if let Some(previous) = &controller.replace_device_id {
-            anyhow::ensure!(controller.enrollment_token_path.is_none(),
-                "controller.replaceDeviceId cannot be combined with enrollmentTokenPath");
-            anyhow::ensure!(previous.len() == 36 && previous.bytes().enumerate().all(|(i, b)| {
-                if matches!(i, 8 | 13 | 18 | 23) { b == b'-' } else { b.is_ascii_hexdigit() }
-            }), "controller.replaceDeviceId must be a UUID");
+            anyhow::ensure!(
+                controller.enrollment_token_path.is_none(),
+                "controller.replaceDeviceId cannot be combined with enrollmentTokenPath"
+            );
+            anyhow::ensure!(
+                previous.len() == 36
+                    && previous.bytes().enumerate().all(|(i, b)| {
+                        if matches!(i, 8 | 13 | 18 | 23) {
+                            b == b'-'
+                        } else {
+                            b.is_ascii_hexdigit()
+                        }
+                    }),
+                "controller.replaceDeviceId must be a UUID"
+            );
         }
         if controller.enrollment_token_path.is_some() && controller.device_authorization {
             anyhow::bail!(
@@ -3260,9 +3274,19 @@ oidc:
     #[test]
     fn device_limit_is_optional_and_bounded() {
         let mut config = admin_document();
-        assert!(parse_controller(&config.to_string()).unwrap().max_devices_per_user.is_none());
+        assert!(
+            parse_controller(&config.to_string())
+                .unwrap()
+                .max_devices_per_user
+                .is_none()
+        );
         config["maxDevicesPerUser"] = serde_json::json!(5);
-        assert_eq!(parse_controller(&config.to_string()).unwrap().max_devices_per_user, Some(5));
+        assert_eq!(
+            parse_controller(&config.to_string())
+                .unwrap()
+                .max_devices_per_user,
+            Some(5)
+        );
         for invalid in [0, 1001] {
             config["maxDevicesPerUser"] = serde_json::json!(invalid);
             assert!(parse_controller(&config.to_string()).is_err());

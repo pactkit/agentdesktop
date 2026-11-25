@@ -309,8 +309,15 @@ pub async fn enroll(
         browser_login(&config, enrollment, callback_listen, open_browser, &nonce).await?
     };
     enrollment.set("enrolling").await;
-    complete_enrollment(&mut client, config, &device_key, &csr, tokens,
-        controller.replace_device_id.as_deref()).await
+    complete_enrollment(
+        &mut client,
+        config,
+        &device_key,
+        &csr,
+        tokens,
+        controller.replace_device_id.as_deref(),
+    )
+    .await
 }
 
 /// Enrolls with the operator-signed token at `token_path`; no user signs in.
@@ -505,8 +512,12 @@ async fn complete_enrollment(
             .metadata_mut()
             .insert("authorization", authorization.clone());
         if let Some(previous) = previous {
-            request.metadata_mut().insert("x-agentdesktop-replaces-device",
-                previous.parse().context("encode replacement device identity")?);
+            request.metadata_mut().insert(
+                "x-agentdesktop-replaces-device",
+                previous
+                    .parse()
+                    .context("encode replacement device identity")?,
+            );
         }
         request.set_timeout(Duration::from_secs(15));
         match client.enroll_device(request).await {
