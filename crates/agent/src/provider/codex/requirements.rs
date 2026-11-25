@@ -6,7 +6,7 @@ use std::{
     collections::BTreeMap,
     fs,
     os::unix::fs::{MetadataExt, PermissionsExt},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, ensure};
@@ -16,7 +16,7 @@ use super::Codex;
 use crate::reconcile::ReconcilePlan;
 
 const PATH: &str = "/etc/codex/requirements.toml";
-const HEADER: &str = "# Agentdesktop-owned Codex requirements. Do not edit.\n";
+pub(crate) const HEADER: &str = "# Agentdesktop-owned Codex requirements. Do not edit.\n";
 const MODE: u32 = 0o644;
 
 pub(super) fn plan_system(
@@ -33,6 +33,14 @@ pub(super) fn plan_system(
     );
     // SAFETY: geteuid has no pointer arguments and no side effects.
     ensure!(unsafe { libc::geteuid() } == 0, "Codex requirements require root");
+    let path = checked_system_path(!values.is_empty())?;
+    plan_file(&path, values, plan)
+}
+
+/// Resolve only a protected machine path. Also used by read-only evidence
+/// collection running as the employee; no privileged operation is required.
+pub(crate) fn checked_system_path(require_readable: bool) -> anyhow::Result<PathBuf> {
+    let path = Path::new(PATH);
     let parent = path.parent().context("requirements path has no parent")?;
     // MDM must provision this directory. Canonicalize to support macOS /etc.
     let resolved = parent
@@ -61,7 +69,7 @@ pub(super) fn plan_system(
                 path.display()
             );
             ensure!(
-                values.is_empty() || metadata.permissions().mode() & 0o004 != 0,
+                !require_readable || metadata.permissions().mode() & 0o004 != 0,
                 "requirements must be readable by employees; correct file mode at {}",
                 path.display()
             );
@@ -69,7 +77,19 @@ pub(super) fn plan_system(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("inspect Codex requirements file"),
     }
-    plan_file(&path, values, plan)
+    Ok(path)
+}
+
+pub(crate) const MAX_REQUIREMENTS_BYTES: usize = 1024 * 1024;
+
+pub(crate) fn render(values: &BTreeMap<String, Value>) -> anyhow::Result<String> {
+    let body = toml::to_string_pretty(values).context("serialize Codex requirements as TOML")?;
+    let contents = format!("{HEADER}{body}");
+    ensure!(
+        contents.len() <= MAX_REQUIREMENTS_BYTES,
+        "Codex requirements exceed the one MiB policy size limit"
+    );
+    Ok(contents)
 }
 
 fn plan_file(
@@ -98,8 +118,7 @@ fn plan_file(
 
     // Validate serialization before planning writes, and never expose
     // requirements content in the dry-run report (hooks may contain secrets).
-    let body = toml::to_string_pretty(values).context("serialize Codex requirements as TOML")?;
-    let contents = format!("{HEADER}{body}");
+    let contents = render(values)?;
     let action = match existing.as_deref() {
         Some(_) if !owned => {
             plan.record(Codex::DISPLAY_NAME, description, "conflict", path);

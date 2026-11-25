@@ -9,7 +9,7 @@ use crate::reconcile::ReconcilePlan;
 pub(super) mod discovery;
 mod reconcile;
 #[cfg(unix)]
-mod requirements;
+pub(crate) mod requirements;
 
 #[derive(Clone)]
 pub struct Codex {

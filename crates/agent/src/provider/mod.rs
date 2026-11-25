@@ -23,6 +23,7 @@ mod metadata;
 pub mod ollama;
 pub mod opencode;
 pub mod pi;
+pub(crate) mod policy_evidence;
 pub(crate) mod shared;
 pub mod vscode;
 

@@ -4,7 +4,7 @@ use agentdesktop_client as client;
 use agentdesktop_core::{
     config::DaemonConfig,
     model::{
-        Discovery, EnrollmentStatus, Health, LlmGatewayCredential, LlmGatewayLoginStatus,
+        DaemonInfo, Discovery, EnrollmentStatus, Health, LlmGatewayCredential, LlmGatewayLoginStatus,
         ProgramChoice, ProgramManagement, TelemetryEventKind,
     },
 };
@@ -27,6 +27,12 @@ pub enum ClientCommand {
         /// Does not prove runtime enforcement.
         #[arg(long, value_name = "HOST:CAPABILITY")]
         require: Vec<String>,
+    },
+    /// Inspect local native policy delivery (never a runtime compliance verdict).
+    PolicyEvidence {
+        /// Exit nonzero unless assigned Codex requirements match the protected file.
+        #[arg(long)]
+        require_delivered: bool,
     },
     /// Print the daemon's local startup configuration.
     Config,
@@ -154,6 +160,20 @@ pub async fn run(command: ClientCommand, socket: PathBuf) -> anyhow::Result<()> 
             let reports = crate::provider::capabilities::assess(&discovery, std::env::consts::OS);
             println!("{}", serde_json::to_string_pretty(&reports)?);
             crate::provider::capabilities::require_documented(&reports, &require)?;
+        }
+        ClientCommand::PolicyEvidence { require_delivered } => {
+            let config: DaemonConfig = client::get(&socket, "/v1/effective-config").await?;
+            let discovery: Discovery = client::get(&socket, "/v1/discovery").await?;
+            let info: DaemonInfo = client::get(&socket, "/v1/daemon-info").await?;
+            let evidence = crate::provider::policy_evidence::collect(&config, &discovery, info.scope);
+            println!("{}", serde_json::to_string_pretty(&evidence)?);
+            if require_delivered {
+                anyhow::ensure!(
+                    evidence.is_delivered(),
+                    "Codex policy delivery not established: {:?}",
+                    evidence.status
+                );
+            }
         }
         ClientCommand::Config => {
             let config: DaemonConfig = client::get(&socket, "/v1/config").await?;

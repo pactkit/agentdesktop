@@ -39,7 +39,11 @@ A configuration write is not proof that a client enforces policy.
   from defaults. Ownership checks, redacted dry-run and explicit retirement
   are implemented; Windows ACL and registry support, schema generation and
   native-client enforcement tests remain open.
-- Stories 04–10: not implemented.
+- Story 04: local read-only Codex delivery evidence CLI, binding observed and
+  expected file digests to host inventory, daemon scope and the observation
+  time. No runtime verification is claimed. Controller reporting, signed
+  conformance evidence and revision-bound runtime tests remain open.
+- Stories 05–10: not implemented.
 
 ## Codex policy path and authority (Story 03)
 
