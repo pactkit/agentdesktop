@@ -1399,7 +1399,7 @@ mod tests {
             heartbeat_interval: Duration::from_secs(30),
             device_authorization: false,
             enrollment_token_path: Some(token_path.clone()),
-                replace_device_id: None,
+            replace_device_id: None,
         };
         let enrollment = crate::enrollment::EnrollmentState::new(true);
 

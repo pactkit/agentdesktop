@@ -213,6 +213,13 @@
           "description": "Interval between device heartbeats. Defaults to `30s`.",
           "type": "string",
           "default": "30s"
+        },
+        "replaceDeviceId": {
+          "description": "Optional previous device UUID to retire atomically during user enrollment.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false,

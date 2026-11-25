@@ -8,6 +8,7 @@
 |`controller.deviceAuthorization`|boolean|Enroll with the OAuth 2.0 Device Authorization Grant (RFC 8628) instead<br>of a browser redirect to a local callback.<br><br>Use this on hosts without a local browser, such as servers reached over<br>SSH. The daemon logs a verification URL and user code to approve from<br>any other device. The identity provider must support device<br>authorization for the controller's client. The daemon must be able to<br>reach the IdP's device-authorization and token endpoints directly.|
 |`controller.enrollmentTokenPath`|string|Path to a file holding an enrollment token signed by an issuer the<br>controller trusts (`enrollmentTokens`).<br><br>The daemon enrolls with this token instead of a user sign-in, so a<br>device management system can enroll devices unattended. Cannot be<br>combined with `deviceAuthorization`.|
 |`controller.heartbeatInterval`|string|Interval between device heartbeats. Defaults to `30s`.|
+|`controller.replaceDeviceId`|string|Optional previous device UUID to retire atomically during user enrollment.|
 |`daemon`|object|Local daemon startup settings. Not accepted in controller-delivered policy.|
 |`daemon.catalogPublicKeys`|[]object|Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.|
 |`daemon.catalogPublicKeys[].keyId`|string||

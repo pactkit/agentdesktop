@@ -3258,6 +3258,18 @@ oidc:
     }
 
     #[test]
+    fn device_limit_is_optional_and_bounded() {
+        let mut config = admin_document();
+        assert!(parse_controller(&config.to_string()).unwrap().max_devices_per_user.is_none());
+        config["maxDevicesPerUser"] = serde_json::json!(5);
+        assert_eq!(parse_controller(&config.to_string()).unwrap().max_devices_per_user, Some(5));
+        for invalid in [0, 1001] {
+            config["maxDevicesPerUser"] = serde_json::json!(invalid);
+            assert!(parse_controller(&config.to_string()).is_err());
+        }
+    }
+
+    #[test]
     fn controller_fleet_limits_reject_zero() {
         let base = r#"
 tls: /etc/agentdesktop/tls

@@ -167,6 +167,64 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn concurrent_enrollment_respects_limit_and_replacement_is_atomic() {
+        use crate::oidc::{CompletedEnrollment, EnrolledUser, EnrollmentCredential};
+        use agentdesktop_proto::fleet::EnrollResponse;
+        fn user(subject: &str) -> CompletedEnrollment {
+            CompletedEnrollment {
+                hostname: "host".into(),
+                credential: EnrollmentCredential::User(EnrolledUser {
+                    issuer: "issuer".into(),
+                    subject: subject.into(),
+                    idp_claims: Default::default(),
+                }),
+            }
+        }
+        fn receipt(id: &str) -> EnrollResponse {
+            EnrollResponse {
+                device_id: id.into(),
+                client_certificate_pem: b"certificate".to_vec(),
+                client_certificate_expires_at_unix_seconds: 100,
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::connect(&format!(
+            "sqlite://{}?mode=rwc", dir.path().join("policy.db").display()
+        )).await.unwrap();
+        let alice = user("alice");
+        let first = receipt("a");
+        let second = receipt("b");
+        let (a, b) = tokio::join!(
+            db.finish_enrollment_with_policy(&alice, &first, Some(1), None),
+            db.finish_enrollment_with_policy(&alice, &second, Some(1), None)
+        );
+        assert_ne!(a.is_ok(), b.is_ok());
+        let old = if a.is_ok() { "a" } else { "b" };
+        let other = if old == "a" { "b" } else { "a" };
+        assert!(db.device_lifecycle(other).await.unwrap().is_none());
+        let bob = user("bob");
+        assert!(db.finish_enrollment_with_policy(&bob, &receipt("foreign"), Some(1), Some(old)).await.is_err());
+        assert!(db.device_lifecycle("foreign").await.unwrap().is_none());
+        assert_eq!(db.device_lifecycle(old).await.unwrap().unwrap().state, "active");
+        let replacement = receipt("replacement");
+        assert_eq!(
+            db.finish_enrollment_with_policy(&alice, &replacement, Some(1), Some(old)).await.unwrap(),
+            replacement
+        );
+        assert_eq!(
+            db.finish_enrollment_with_policy(&alice, &replacement, Some(1), Some(old)).await.unwrap(),
+            replacement
+        );
+        assert_eq!(db.device_lifecycle(old).await.unwrap().unwrap().superseded_by.as_deref(), Some("replacement"));
+        assert_eq!(db.device_lifecycle("replacement").await.unwrap().unwrap().replaces_device_id.as_deref(), Some(old));
+        assert_eq!(db.lifecycle_audit(old).await.unwrap().len(), 1);
+        assert!(db.device_principal(old).await.is_err());
+        assert!(db.enrollment_receipt(old).await.is_err());
+        assert!(db.finish_enrollment_with_policy(&alice, &receipt("another"), Some(1), Some(old)).await.is_err());
+        assert!(db.device_lifecycle("another").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn revoked_enrollment_receipt_cannot_be_reissued() {
         use crate::oidc::{CompletedEnrollment, EnrolledUser, EnrollmentCredential};
         use agentdesktop_proto::fleet::EnrollResponse;
