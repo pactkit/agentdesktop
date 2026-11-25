@@ -45,10 +45,16 @@ impl MacosInstaller {
 
     fn roots(&self) -> anyhow::Result<Roots> {
         // SAFETY: geteuid does not dereference pointers or mutate state.
-        ensure!(unsafe { libc::geteuid() } != 0, "installer must not run as root");
+        ensure!(
+            unsafe { libc::geteuid() } != 0,
+            "installer must not run as root"
+        );
         let home = self.home.canonicalize().context("resolve home")?;
         owned_dir(&home, false)?;
-        ensure!(self.state_dir.is_absolute(), "state directory must be absolute");
+        ensure!(
+            self.state_dir.is_absolute(),
+            "state directory must be absolute"
+        );
         secure_fs::ensure_private_dir(&self.state_dir)?;
         let state = self.state_dir.canonicalize()?;
         owned_dir(&state, false)?;
@@ -68,16 +74,25 @@ impl MacosInstaller {
         Ok(dir)
     }
 
-    fn validate_receipt(roots: &Roots, dir: &Path, id: &str, receipt: &Receipt) -> anyhow::Result<()> {
+    fn validate_receipt(
+        roots: &Roots,
+        dir: &Path,
+        id: &str,
+        receipt: &Receipt,
+    ) -> anyhow::Result<()> {
         ensure!(
-            receipt.agent_id == id && safe_component(&receipt.version)
-                && valid_digest(&receipt.artifact_sha256) && valid_digest(&receipt.binary_sha256),
+            receipt.agent_id == id
+                && safe_component(&receipt.version)
+                && valid_digest(&receipt.artifact_sha256)
+                && valid_digest(&receipt.binary_sha256),
             "receipt_conflict: invalid identity or digest"
         );
         let payload = dir.join(format!("{}-{}", receipt.version, receipt.artifact_sha256));
-        ensure!(receipt.binary_path == payload.join("binary")
-            && receipt.launcher_path == roots.bin.join(id),
-            "receipt_conflict: receipt paths are not the exact managed paths");
+        ensure!(
+            receipt.binary_path == payload.join("binary")
+                && receipt.launcher_path == roots.bin.join(id),
+            "receipt_conflict: receipt paths are not the exact managed paths"
+        );
         if payload.symlink_metadata().is_ok() {
             owned_dir(&payload, false)?;
         }
@@ -94,7 +109,9 @@ impl MacosInstaller {
 
     fn recover_one(roots: &Roots, dir: &Path, id: &str) -> anyhow::Result<()> {
         let path = dir.join("pending.json");
-        let Some(pending): Option<Pending> = read_json(&path)? else { return Ok(()); };
+        let Some(pending): Option<Pending> = read_json(&path)? else {
+            return Ok(());
+        };
         Self::validate_receipt(roots, dir, id, &pending.next)?;
         if let Some(previous) = &pending.previous {
             Self::validate_receipt(roots, dir, id, previous)?;
@@ -103,13 +120,21 @@ impl MacosInstaller {
         let target = launcher_target(&pending.next.launcher_path)?;
         if target.as_ref() == Some(&pending.next.binary_path) {
             check_binary(&pending.next)?;
-            ensure!(existing == pending.previous || existing.as_ref() == Some(&pending.next),
-                "receipt_conflict: journal does not match current receipt");
+            ensure!(
+                existing == pending.previous || existing.as_ref() == Some(&pending.next),
+                "receipt_conflict: journal does not match current receipt"
+            );
             write_json(&dir.join("receipt.json"), &pending.next)?;
         } else {
-            ensure!(existing == pending.previous
-                && target == pending.previous.as_ref().map(|receipt| receipt.binary_path.clone()),
-                "receipt_conflict: pending journal does not match launcher");
+            ensure!(
+                existing == pending.previous
+                    && target
+                        == pending
+                            .previous
+                            .as_ref()
+                            .map(|receipt| receipt.binary_path.clone()),
+                "receipt_conflict: pending journal does not match launcher"
+            );
             // Publication did not happen. Keep the previous receipt and
             // immutable payload; no broad directory deletion during recovery.
         }
@@ -117,24 +142,43 @@ impl MacosInstaller {
         Ok(())
     }
 
-    fn install_inner(&self, job_id: &str, entry: &CatalogEntry, version: &str, artifact: &[u8]) -> anyhow::Result<Receipt> {
-        ensure!(safe_component(job_id) && safe_component(&entry.id) && safe_component(version),
-            "invalid install identifier");
-        ensure!(entry.install_kind == InstallKind::User
-            && entry.platforms.iter().any(|os| os == "macos")
-            && entry.architectures.iter().any(|arch| arch == std::env::consts::ARCH),
-            "unsupported platform or install scope");
+    fn install_inner(
+        &self,
+        job_id: &str,
+        entry: &CatalogEntry,
+        version: &str,
+        artifact: &[u8],
+    ) -> anyhow::Result<Receipt> {
+        ensure!(
+            safe_component(job_id) && safe_component(&entry.id) && safe_component(version),
+            "invalid install identifier"
+        );
+        ensure!(
+            entry.install_kind == InstallKind::User
+                && entry.platforms.iter().any(|os| os == "macos")
+                && entry
+                    .architectures
+                    .iter()
+                    .any(|arch| arch == std::env::consts::ARCH),
+            "unsupported platform or install scope"
+        );
         let artifact_digest = sha256_hex(artifact);
-        ensure!(entry.versions.iter().any(|candidate| candidate.version == version && candidate.sha256 == artifact_digest),
-            "artifact differs from catalog version");
+        ensure!(
+            entry.versions.iter().any(
+                |candidate| candidate.version == version && candidate.sha256 == artifact_digest
+            ),
+            "artifact differs from catalog version"
+        );
         let roots = self.roots()?;
         let dir = Self::agent_dir(&roots, &entry.id)?;
         Self::recover_one(&roots, &dir, &entry.id)?;
         let previous = Self::read_receipt(&roots, &dir, &entry.id)?;
         let launcher = roots.bin.join(&entry.id);
         let current_target = launcher_target(&launcher)?;
-        ensure!(current_target == previous.as_ref().map(|receipt| receipt.binary_path.clone()),
-            "receipt_conflict: launcher is not owned by Agentdesktop");
+        ensure!(
+            current_target == previous.as_ref().map(|receipt| receipt.binary_path.clone()),
+            "receipt_conflict: launcher is not owned by Agentdesktop"
+        );
         if let Some(receipt) = &previous {
             check_binary(receipt)?;
             if receipt.version == version && receipt.artifact_sha256 == artifact_digest {
@@ -147,8 +191,11 @@ impl MacosInstaller {
         fs::create_dir(&staging).context("create exclusive staging directory")?;
         let staged_binary = staging.join("binary");
         let result = (|| -> anyhow::Result<Receipt> {
-            let mut file = fs::OpenOptions::new().write(true).create_new(true)
-                .mode(0o700).open(&staged_binary)?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o700)
+                .open(&staged_binary)?;
             extract_binary(artifact, &mut file)?;
             file.sync_all()?;
             drop(file);
@@ -156,8 +203,10 @@ impl MacosInstaller {
             match payload.symlink_metadata() {
                 Ok(_) => {
                     owned_dir(&payload, false)?;
-                    ensure!(file_digest(&payload.join("binary"))? == digest,
-                        "receipt_conflict: existing immutable payload differs");
+                    ensure!(
+                        file_digest(&payload.join("binary"))? == digest,
+                        "receipt_conflict: existing immutable payload differs"
+                    );
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     fs::rename(&staging, &payload)?;
@@ -165,22 +214,33 @@ impl MacosInstaller {
                 Err(error) => return Err(error.into()),
             }
             let next = Receipt {
-                agent_id: entry.id.clone(), version: version.to_owned(),
-                binary_path: payload.join("binary"), launcher_path: launcher.clone(),
-                artifact_sha256: artifact_digest, binary_sha256: digest,
+                agent_id: entry.id.clone(),
+                version: version.to_owned(),
+                binary_path: payload.join("binary"),
+                launcher_path: launcher.clone(),
+                artifact_sha256: artifact_digest,
+                binary_sha256: digest,
                 installed_at_unix_seconds: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
             };
-            write_json(&dir.join("pending.json"), &Pending {
-                next: next.clone(), previous: previous.clone(),
-            })?;
+            write_json(
+                &dir.join("pending.json"),
+                &Pending {
+                    next: next.clone(),
+                    previous: previous.clone(),
+                },
+            )?;
             // Creation never overwrites a foreign path. Replacement is
             // permitted only when the current launcher still matches receipt.
             if previous.is_none() {
                 symlink(&next.binary_path, &launcher)?;
             } else {
-                ensure!(launcher_target(&launcher)? == current_target,
-                    "receipt_conflict: launcher changed during installation");
-                let temporary = roots.bin.join(format!(".agentdesktop-{:016x}", rand::random::<u64>()));
+                ensure!(
+                    launcher_target(&launcher)? == current_target,
+                    "receipt_conflict: launcher changed during installation"
+                );
+                let temporary = roots
+                    .bin
+                    .join(format!(".agentdesktop-{:016x}", rand::random::<u64>()));
                 symlink(&next.binary_path, &temporary)?;
                 if let Err(error) = fs::rename(&temporary, &launcher) {
                     let _ = fs::remove_file(&temporary);
@@ -202,7 +262,13 @@ impl MacosInstaller {
 }
 
 impl Installer for MacosInstaller {
-    fn install(&self, job_id: &str, entry: &CatalogEntry, version: &str, artifact: &[u8]) -> anyhow::Result<Receipt> {
+    fn install(
+        &self,
+        job_id: &str,
+        entry: &CatalogEntry,
+        version: &str,
+        artifact: &[u8],
+    ) -> anyhow::Result<Receipt> {
         self.install_inner(job_id, entry, version, artifact)
     }
 
@@ -212,10 +278,15 @@ impl Installer for MacosInstaller {
         let dir = Self::agent_dir(&roots, &receipt.agent_id)?;
         Self::recover_one(&roots, &dir, &receipt.agent_id)?;
         let stored = Self::read_receipt(&roots, &dir, &receipt.agent_id)?;
-        ensure!(stored.as_ref() == Some(receipt), "receipt_conflict: not the current managed receipt");
+        ensure!(
+            stored.as_ref() == Some(receipt),
+            "receipt_conflict: not the current managed receipt"
+        );
         let target = launcher_target(&receipt.launcher_path)?;
-        ensure!(target.is_none() || target.as_ref() == Some(&receipt.binary_path),
-            "receipt_conflict: launcher points elsewhere");
+        ensure!(
+            target.is_none() || target.as_ref() == Some(&receipt.binary_path),
+            "receipt_conflict: launcher points elsewhere"
+        );
         match receipt.binary_path.symlink_metadata() {
             Ok(_) => check_binary(receipt)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -266,19 +337,28 @@ fn owned_dir(path: &Path, create: bool) -> anyhow::Result<()> {
     }
     let meta = path.symlink_metadata()?;
     // SAFETY: geteuid is a read-only syscall.
-    ensure!(meta.is_dir() && meta.uid() == unsafe { libc::geteuid() }
-        && meta.mode() & 0o022 == 0, "untrusted install directory {}", path.display());
+    ensure!(
+        meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0,
+        "untrusted install directory {}",
+        path.display()
+    );
     Ok(())
 }
 
 fn valid_digest(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn launcher_target(path: &Path) -> anyhow::Result<Option<PathBuf>> {
     match path.symlink_metadata() {
         Ok(meta) => {
-            ensure!(meta.file_type().is_symlink(), "receipt_conflict: foreign launcher");
+            ensure!(
+                meta.file_type().is_symlink(),
+                "receipt_conflict: foreign launcher"
+            );
             Ok(Some(fs::read_link(path)?))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -287,23 +367,31 @@ fn launcher_target(path: &Path) -> anyhow::Result<Option<PathBuf>> {
 }
 
 fn check_binary(receipt: &Receipt) -> anyhow::Result<()> {
-    ensure!(file_digest(&receipt.binary_path)? == receipt.binary_sha256,
-        "receipt_conflict: managed binary changed");
+    ensure!(
+        file_digest(&receipt.binary_path)? == receipt.binary_sha256,
+        "receipt_conflict: managed binary changed"
+    );
     Ok(())
 }
 
 fn file_digest(path: &Path) -> anyhow::Result<String> {
     let meta = path.symlink_metadata()?;
-    ensure!(meta.is_file() && meta.len() <= MAX_BINARY_BYTES
-        && meta.mode() & 0o100 != 0 && meta.mode() & 0o022 == 0,
-        "invalid or nonexecutable payload");
+    ensure!(
+        meta.is_file()
+            && meta.len() <= MAX_BINARY_BYTES
+            && meta.mode() & 0o100 != 0
+            && meta.mode() & 0o022 == 0,
+        "invalid or nonexecutable payload"
+    );
     let mut file = File::open(path)?.take(MAX_BINARY_BYTES + 1);
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 8192];
     let mut total = 0_u64;
     loop {
         let count = file.read(&mut buffer)?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         total += count as u64;
         ensure!(total <= MAX_BINARY_BYTES, "payload exceeds size limit");
         hasher.update(&buffer[..count]);
@@ -317,43 +405,66 @@ fn file_digest(path: &Path) -> anyhow::Result<String> {
 }
 
 fn extract_binary(artifact: &[u8], output: &mut File) -> anyhow::Result<()> {
-    ensure!(!artifact.is_empty() && artifact.len() <= crate::jobs::MAX_ARTIFACT_BYTES,
-        "invalid archive size");
+    ensure!(
+        !artifact.is_empty() && artifact.len() <= crate::jobs::MAX_ARTIFACT_BYTES,
+        "invalid archive size"
+    );
     // Bound the decompressed tar stream too, not just advertised member sizes.
     let decoder = GzDecoder::new(artifact).take(MAX_BINARY_BYTES + 1024 * 1024);
     let mut archive = Archive::new(decoder);
     let mut entries = archive.entries()?;
     let mut entry = entries.next().context("archive has no member")??;
     let path = entry.path()?;
-    ensure!(!path.as_os_str().is_empty()
-        && path.components().all(|component| matches!(component, Component::Normal(_))),
-        "unsafe archive member path");
-    ensure!(entry.header().entry_type().is_file(), "only a regular binary is supported");
+    ensure!(
+        !path.as_os_str().is_empty()
+            && path
+                .components()
+                .all(|component| matches!(component, Component::Normal(_))),
+        "unsafe archive member path"
+    );
+    ensure!(
+        entry.header().entry_type().is_file(),
+        "only a regular binary is supported"
+    );
     let size = entry.header().size()?;
     ensure!(size > 0 && size <= MAX_BINARY_BYTES, "invalid binary size");
     let written = std::io::copy(&mut entry, output)?;
     ensure!(written == size, "truncated archive member");
     drop(entry);
-    ensure!(entries.next().is_none(), "archive must contain exactly one regular file");
+    ensure!(
+        entries.next().is_none(),
+        "archive must contain exactly one regular file"
+    );
     output.flush()?;
     Ok(())
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> anyhow::Result<Option<T>> {
     match path.symlink_metadata() {
-        Ok(meta) => ensure!(meta.is_file() && meta.len() <= MAX_JSON_BYTES, "untrusted install journal or receipt"),
+        Ok(meta) => ensure!(
+            meta.is_file() && meta.len() <= MAX_JSON_BYTES,
+            "untrusted install journal or receipt"
+        ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     }
     let mut bytes = Vec::new();
-    File::open(path)?.take(MAX_JSON_BYTES + 1).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() as u64 <= MAX_JSON_BYTES, "install metadata exceeds size limit");
+    File::open(path)?
+        .take(MAX_JSON_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() as u64 <= MAX_JSON_BYTES,
+        "install metadata exceeds size limit"
+    );
     Ok(Some(serde_json::from_slice(&bytes)?))
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> anyhow::Result<()> {
     let bytes = serde_json::to_vec(value)?;
-    ensure!(bytes.len() as u64 <= MAX_JSON_BYTES, "install metadata exceeds size limit");
+    ensure!(
+        bytes.len() as u64 <= MAX_JSON_BYTES,
+        "install metadata exceeds size limit"
+    );
     secure_fs::atomic_write(path, &bytes, 0o600)
 }
 
@@ -381,12 +492,17 @@ mod tests {
 
     fn entry(bytes: &[u8]) -> CatalogEntry {
         CatalogEntry {
-            id: "codex".into(), display_name: "Codex".into(), program_key: "codex".into(),
-            platforms: vec!["macos".into()], architectures: vec![std::env::consts::ARCH.into()],
+            id: "codex".into(),
+            display_name: "Codex".into(),
+            program_key: "codex".into(),
+            platforms: vec!["macos".into()],
+            architectures: vec![std::env::consts::ARCH.into()],
             install_kind: InstallKind::User,
             versions: vec![CatalogVersion {
-                version: "1.0.0".into(), artifact_url: "https://example.com/artifact".into(),
-                sha256: sha256_hex(bytes), signature: String::new(),
+                version: "1.0.0".into(),
+                artifact_url: "https://example.com/artifact".into(),
+                sha256: sha256_hex(bytes),
+                signature: String::new(),
             }],
             detection: DetectionRule { paths: vec![] },
         }
@@ -398,9 +514,19 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let installer = MacosInstaller::new(home.path().to_owned(), state.path().to_owned());
         let bytes = archive(&[("codex", b"#!/bin/sh\nexit 0\n")]);
-        let receipt = installer.install("job", &entry(&bytes), "1.0.0", &bytes).unwrap();
-        assert_eq!(launcher_target(&receipt.launcher_path).unwrap(), Some(receipt.binary_path.clone()));
-        assert_eq!(installer.install("retry", &entry(&bytes), "1.0.0", &bytes).unwrap(), receipt);
+        let receipt = installer
+            .install("job", &entry(&bytes), "1.0.0", &bytes)
+            .unwrap();
+        assert_eq!(
+            launcher_target(&receipt.launcher_path).unwrap(),
+            Some(receipt.binary_path.clone())
+        );
+        assert_eq!(
+            installer
+                .install("retry", &entry(&bytes), "1.0.0", &bytes)
+                .unwrap(),
+            receipt
+        );
         let mut forged = receipt.clone();
         forged.launcher_path = home.path().join("unrelated");
         assert!(installer.uninstall(&forged, false).is_err());
@@ -418,7 +544,11 @@ mod tests {
         let foreign = roots.bin.join("codex");
         fs::write(&foreign, b"existing user installation").unwrap();
         let bytes = archive(&[("codex", b"new binary")]);
-        assert!(installer.install("job", &entry(&bytes), "1.0.0", &bytes).is_err());
+        assert!(
+            installer
+                .install("job", &entry(&bytes), "1.0.0", &bytes)
+                .is_err()
+        );
         assert_eq!(fs::read(&foreign).unwrap(), b"existing user installation");
     }
 
@@ -428,7 +558,11 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let installer = MacosInstaller::new(home.path().to_owned(), state.path().to_owned());
         let bytes = archive(&[("codex", b"one"), ("extra", b"two")]);
-        assert!(installer.install("job", &entry(&bytes), "1.0.0", &bytes).is_err());
+        assert!(
+            installer
+                .install("job", &entry(&bytes), "1.0.0", &bytes)
+                .is_err()
+        );
         let roots = installer.roots().unwrap();
         assert!(roots.bin.join("codex").symlink_metadata().is_err());
     }

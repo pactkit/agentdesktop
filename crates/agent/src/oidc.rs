@@ -1154,6 +1154,15 @@ mod tests {
         {
             Err(tonic::Status::unimplemented("not used"))
         }
+        async fn get_agent_catalog(
+            &self,
+            _: tonic::Request<agentdesktop_proto::fleet::GetAgentCatalogRequest>,
+        ) -> Result<
+            tonic::Response<agentdesktop_proto::fleet::GetAgentCatalogResponse>,
+            tonic::Status,
+        > {
+            Err(tonic::Status::unimplemented("not used"))
+        }
         async fn connect(
             &self,
             _: tonic::Request<tonic::Streaming<agentdesktop_proto::fleet::AgentMessage>>,

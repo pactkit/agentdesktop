@@ -81,11 +81,16 @@ impl CatalogCache {
             }
         };
         match signed.verify(keys) {
-            Ok(snapshot) if snapshot.sha256 == pointer.sha256 && snapshot.catalog.revision == pointer.revision => Self {
-                snapshot: Some(Arc::new(snapshot)),
-                last_sync: Some(pointer.last_sync_unix_seconds),
-                stale: true,
-            },
+            Ok(snapshot)
+                if snapshot.sha256 == pointer.sha256
+                    && snapshot.catalog.revision == pointer.revision =>
+            {
+                Self {
+                    snapshot: Some(Arc::new(snapshot)),
+                    last_sync: Some(pointer.last_sync_unix_seconds),
+                    stale: true,
+                }
+            }
             Ok(snapshot) => {
                 warn!(
                     revision = snapshot.catalog.revision,
@@ -122,7 +127,8 @@ impl CatalogCache {
             "catalog revision must be positive"
         );
         ensure!(
-            snapshot.catalog.created_at <= now_unix_seconds && !snapshot.catalog.is_expired(now_unix_seconds),
+            snapshot.catalog.created_at <= now_unix_seconds
+                && !snapshot.catalog.is_expired(now_unix_seconds),
             "catalog not currently valid"
         );
         if let Some(current) = self.snapshot.as_ref() {
@@ -186,9 +192,14 @@ impl CatalogCache {
 fn bounded_read(path: &Path, limit: usize) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
     let mut bytes = Vec::new();
-    std::fs::File::open(path)?.take((limit + 1) as u64).read_to_end(&mut bytes)?;
+    std::fs::File::open(path)?
+        .take((limit + 1) as u64)
+        .read_to_end(&mut bytes)?;
     if bytes.len() > limit {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "catalog cache size limit exceeded"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "catalog cache size limit exceeded",
+        ));
     }
     Ok(bytes)
 }

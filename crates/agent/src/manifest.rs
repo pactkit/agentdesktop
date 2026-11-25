@@ -21,8 +21,18 @@ pub fn verify_artifact<'a>(
     keys: &[CatalogPublicKey],
 ) -> anyhow::Result<&'a CatalogVersion> {
     agentdesktop_core::catalog::validate_public_keys(keys)?;
-    ensure!(snapshot.catalog.entries.iter().any(|candidate| candidate == entry), "entry is not part of the verified catalog");
-    ensure!(!bytes.is_empty() && bytes.len() <= crate::jobs::MAX_ARTIFACT_BYTES, "artifact size outside accepted bounds");
+    ensure!(
+        snapshot
+            .catalog
+            .entries
+            .iter()
+            .any(|candidate| candidate == entry),
+        "entry is not part of the verified catalog"
+    );
+    ensure!(
+        !bytes.is_empty() && bytes.len() <= crate::jobs::MAX_ARTIFACT_BYTES,
+        "artifact size outside accepted bounds"
+    );
     let expected = entry
         .versions
         .iter()

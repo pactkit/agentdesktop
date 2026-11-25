@@ -845,7 +845,9 @@ async fn connect(
     let mut catalog_tick = time::interval(Duration::from_secs(300));
     catalog_tick.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
     // Isolate the cache per controller/device identity. Trust pins are local only.
-    let catalog_scope = agentdesktop_core::catalog::sha256_hex(format!("{}\0{}", controller.address, identity.device_id).as_bytes());
+    let catalog_scope = agentdesktop_core::catalog::sha256_hex(
+        format!("{}\0{}", controller.address, identity.device_id).as_bytes(),
+    );
     let catalog_root = state_dir.join("catalog-scopes");
     let catalog_dir = catalog_root.join(catalog_scope);
     if !channels.catalog_public_keys.is_empty() {
@@ -967,12 +969,22 @@ async fn sync_catalog(
     authenticate_request(identity, &mut request)?;
     let reply = client.get_agent_catalog(request).await?.into_inner();
     anyhow::ensure!(!reply.unchanged, "unexpected unchanged catalog");
-    anyhow::ensure!(reply.signed_catalog_json.len() <= agentdesktop_core::catalog::MAX_CATALOG_BYTES, "catalog exceeds byte limit");
-    let signed: agentdesktop_core::catalog::SignedCatalog = serde_json::from_slice(&reply.signed_catalog_json)?;
+    anyhow::ensure!(
+        reply.signed_catalog_json.len() <= agentdesktop_core::catalog::MAX_CATALOG_BYTES,
+        "catalog exceeds byte limit"
+    );
+    let signed: agentdesktop_core::catalog::SignedCatalog =
+        serde_json::from_slice(&reply.signed_catalog_json)?;
     let verified = signed.verify(keys)?;
-    anyhow::ensure!(verified.catalog.revision == reply.revision && verified.sha256 == reply.sha256, "catalog metadata mismatch");
+    anyhow::ensure!(
+        verified.catalog.revision == reply.revision && verified.sha256 == reply.sha256,
+        "catalog metadata mismatch"
+    );
     let now = unix_time_seconds();
-    anyhow::ensure!(verified.catalog.created_at <= now && !verified.catalog.is_expired(now), "catalog not currently valid");
+    anyhow::ensure!(
+        verified.catalog.created_at <= now && !verified.catalog.is_expired(now),
+        "catalog not currently valid"
+    );
     cache.replace(state_dir, &reply.signed_catalog_json, keys, now)?;
     Ok(())
 }

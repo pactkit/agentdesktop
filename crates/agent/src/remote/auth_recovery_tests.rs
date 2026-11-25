@@ -53,7 +53,10 @@ impl FleetAgent for Controller {
     async fn get_device_usage(&self, _: Request<DeviceUsageRequest>) -> Reply<DeviceUsageResponse> {
         Err(tonic::Status::unimplemented("not used"))
     }
-    async fn get_agent_catalog(&self, _: Request<GetAgentCatalogRequest>) -> Reply<GetAgentCatalogResponse> {
+    async fn get_agent_catalog(
+        &self,
+        _: Request<GetAgentCatalogRequest>,
+    ) -> Reply<GetAgentCatalogResponse> {
         Err(tonic::Status::unimplemented("not used"))
     }
     type ConnectStream = ReceiverStream<Result<ControllerMessage, tonic::Status>>;

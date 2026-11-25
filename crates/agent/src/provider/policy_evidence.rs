@@ -204,7 +204,11 @@ mod tests {
             Status::InvalidFile
         );
         assert_eq!(
-            classify(Intent::Apply, Some(expected), Some(b"default_permissions = \"x\"")),
+            classify(
+                Intent::Apply,
+                Some(expected),
+                Some(b"default_permissions = \"x\"")
+            ),
             Status::Foreign
         );
         assert_eq!(

@@ -4,8 +4,8 @@ use agentdesktop_client as client;
 use agentdesktop_core::{
     config::DaemonConfig,
     model::{
-        DaemonInfo, Discovery, EnrollmentStatus, Health, LlmGatewayCredential, LlmGatewayLoginStatus,
-        ProgramChoice, ProgramManagement, TelemetryEventKind,
+        DaemonInfo, Discovery, EnrollmentStatus, Health, LlmGatewayCredential,
+        LlmGatewayLoginStatus, ProgramChoice, ProgramManagement, TelemetryEventKind,
     },
 };
 use clap::Subcommand;
@@ -165,7 +165,8 @@ pub async fn run(command: ClientCommand, socket: PathBuf) -> anyhow::Result<()> 
             let config: DaemonConfig = client::get(&socket, "/v1/effective-config").await?;
             let discovery: Discovery = client::get(&socket, "/v1/discovery").await?;
             let info: DaemonInfo = client::get(&socket, "/v1/daemon-info").await?;
-            let evidence = crate::provider::policy_evidence::collect(&config, &discovery, info.scope);
+            let evidence =
+                crate::provider::policy_evidence::collect(&config, &discovery, info.scope);
             println!("{}", serde_json::to_string_pretty(&evidence)?);
             if require_delivered {
                 anyhow::ensure!(
