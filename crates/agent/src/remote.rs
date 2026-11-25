@@ -97,6 +97,7 @@ pub struct LogoutRequest {
 
 pub struct Requests {
     pub telemetry: mpsc::Receiver<ModelTelemetryEvent>,
+    pub catalog_public_keys: Vec<agentdesktop_core::catalog::CatalogPublicKey>,
     pub logout: mpsc::Receiver<LogoutRequest>,
     /// The daemon's current configuration, replaced by each pushed
     /// configuration that parses (read by the reconcile tick).
@@ -108,6 +109,7 @@ pub struct Requests {
 
 /// The configuration channels shared with the reconcile tick.
 struct ConfigChannels {
+    catalog_public_keys: Vec<agentdesktop_core::catalog::CatalogPublicKey>,
     current: watch::Sender<Option<CurrentConfig>>,
     tick_statuses: Option<watch::Receiver<Option<TickStatus>>>,
 }
@@ -203,11 +205,13 @@ pub async fn run(
 ) {
     let Requests {
         mut telemetry,
+        catalog_public_keys,
         mut logout,
         current,
         tick_statuses,
     } = requests;
     let mut channels = ConfigChannels {
+        catalog_public_keys,
         current,
         tick_statuses,
     };
@@ -838,6 +842,12 @@ async fn connect(
     info!(address = %controller.address, "connected to controller");
     controller_status.mark_connected().await;
     let mut heartbeat = time::interval(controller.heartbeat_interval);
+    let mut catalog_tick = time::interval(Duration::from_secs(300));
+    catalog_tick.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+    // Isolate the cache per controller/device identity. Trust pins are local only.
+    let catalog_scope = agentdesktop_core::catalog::sha256_hex(format!("{}\0{}", controller.address, identity.device_id).as_bytes());
+    let catalog_dir = state_dir.join("catalog-scopes").join(catalog_scope);
+    let mut catalog_cache = crate::catalog::CatalogCache::load(&catalog_dir, &channels.catalog_public_keys);
     let reconnect_at = identity
         .oauth
         .as_ref()
@@ -853,6 +863,14 @@ async fn connect(
             _ = &mut oauth_reconnect, if reconnect_at.is_some() => {
                 info!("reconnecting controller stream to refresh OIDC access token");
                 return Ok(());
+            }
+            _ = catalog_tick.tick(), if !channels.catalog_public_keys.is_empty() => {
+                let result = time::timeout(Duration::from_secs(15), sync_catalog(&mut client, identity, &catalog_dir, &channels.catalog_public_keys, &mut catalog_cache)).await;
+                match result {
+                    Ok(Ok(())) => {},
+                    Ok(Err(error)) => { catalog_cache.mark_stale(); warn!(%error, "catalog sync failed; retaining last verified snapshot"); },
+                    Err(_) => { catalog_cache.mark_stale(); warn!("catalog sync timed out"); },
+                }
             }
             _ = heartbeat.tick() => {
                 send(&sender, agent_message::Message::Heartbeat(Heartbeat {
@@ -925,6 +943,29 @@ async fn connect(
             }
         }
     }
+}
+
+async fn sync_catalog(
+    client: &mut FleetAgentClient<Channel>,
+    identity: &Identity,
+    state_dir: &Path,
+    keys: &[agentdesktop_core::catalog::CatalogPublicKey],
+    cache: &mut crate::catalog::CatalogCache,
+) -> anyhow::Result<()> {
+    // Request the full signed envelope for now; no trust is placed in the
+    // unsigned revision/hash fields. A subsequent job port may use deltas.
+    let mut request = Request::new(proto::GetAgentCatalogRequest::default());
+    authenticate_request(identity, &mut request)?;
+    let reply = client.get_agent_catalog(request).await?.into_inner();
+    anyhow::ensure!(!reply.unchanged, "unexpected unchanged catalog");
+    anyhow::ensure!(reply.signed_catalog_json.len() <= agentdesktop_core::catalog::MAX_CATALOG_BYTES, "catalog exceeds byte limit");
+    let signed: agentdesktop_core::catalog::SignedCatalog = serde_json::from_slice(&reply.signed_catalog_json)?;
+    let verified = signed.verify(keys)?;
+    anyhow::ensure!(verified.catalog.revision == reply.revision && verified.sha256 == reply.sha256, "catalog metadata mismatch");
+    let now = unix_time_seconds();
+    anyhow::ensure!(verified.catalog.created_at <= now && !verified.catalog.is_expired(now), "catalog not currently valid");
+    cache.replace(state_dir, &reply.signed_catalog_json, keys, now)?;
+    Ok(())
 }
 
 fn telemetry_to_proto(event: ModelTelemetryEvent) -> TelemetryEvent {

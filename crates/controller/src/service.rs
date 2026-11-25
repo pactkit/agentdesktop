@@ -3,6 +3,7 @@ use std::{ops::ControlFlow, pin::Pin, time::Duration};
 use agentdesktop_proto::fleet::{
     AgentMessage, ConfigStatus, ControllerMessage, DaemonConfig, DeviceCertificateResponse,
     DeviceUsageRequest, DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse,
+    GetAgentCatalogRequest, GetAgentCatalogResponse,
     LlmGatewayCredentialRequest, LlmGatewayCredentialResponse, LoginConfiguration,
     LoginConfigurationRequest, RenewDeviceCertificateRequest, agent_message, controller_message,
     enroll_device_request::Credential, fleet_agent_server::FleetAgent,
@@ -23,6 +24,7 @@ use agentdesktop_core::config::{LlmGatewayAuthentication, ProgramsConfig};
 use agentdesktop_usage::UsageError;
 
 use crate::{
+    catalog::CatalogStore,
     daemon_config::DaemonConfigStore,
     database::{Database, DevicePrincipal},
     device_ca::DeviceCertificateIssuer,
@@ -43,6 +45,7 @@ pub struct FleetAgentService {
     gateway_jwt_issuer: Option<GatewayJwtIssuer>,
     device_certificate_issuer: Option<DeviceCertificateIssuer>,
     usage_enabled: bool,
+    catalog: CatalogStore,
     enrollment: EnrollmentLimiter,
     device_streams: DeviceStreams,
 }
@@ -67,6 +70,7 @@ impl FleetAgentService {
             gateway_jwt_issuer,
             device_certificate_issuer,
             usage_enabled: false,
+            catalog: CatalogStore::empty(),
             enrollment: EnrollmentLimiter::new(limits),
             device_streams: DeviceStreams::new(limits),
         }
@@ -75,6 +79,11 @@ impl FleetAgentService {
     /// Accepts operator-signed enrollment tokens in place of a user sign-in.
     pub fn with_enrollment_tokens(mut self, tokens: Option<EnrollmentTokens>) -> Self {
         self.enrollment_tokens = tokens;
+        self
+    }
+
+    pub fn with_catalog(mut self, catalog: CatalogStore) -> Self {
+        self.catalog = catalog;
         self
     }
 
@@ -270,6 +279,27 @@ impl FleetAgent for FleetAgentService {
             UsageError::InvalidQuery(message) => Status::invalid_argument(message),
             UsageError::Storage(error) => internal(error),
         })
+    }
+
+    async fn get_agent_catalog(
+        &self,
+        request: Request<GetAgentCatalogRequest>,
+    ) -> Result<Response<GetAgentCatalogResponse>, Status> {
+        self.authenticate_device(&request).await?;
+        let known = request.into_inner();
+        let snapshot = self.catalog.current().ok_or_else(|| Status::failed_precondition("no agent catalog configured"))?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Status::internal("invalid controller clock"))?.as_secs();
+        if snapshot.catalog.is_expired(now) || snapshot.catalog.created_at > now {
+            return Err(Status::failed_precondition("agent catalog not currently valid"));
+        }
+        let unchanged = known.known_revision == snapshot.catalog.revision && known.known_sha256 == snapshot.sha256;
+        Ok(Response::new(GetAgentCatalogResponse {
+            unchanged,
+            revision: snapshot.catalog.revision,
+            sha256: snapshot.sha256.clone(),
+            signed_catalog_json: if unchanged { Vec::new() } else { snapshot.signed_catalog_json.clone() },
+        }))
     }
 
     async fn connect(

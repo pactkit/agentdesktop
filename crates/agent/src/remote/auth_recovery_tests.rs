@@ -53,6 +53,9 @@ impl FleetAgent for Controller {
     async fn get_device_usage(&self, _: Request<DeviceUsageRequest>) -> Reply<DeviceUsageResponse> {
         Err(tonic::Status::unimplemented("not used"))
     }
+    async fn get_agent_catalog(&self, _: Request<GetAgentCatalogRequest>) -> Reply<GetAgentCatalogResponse> {
+        Err(tonic::Status::unimplemented("not used"))
+    }
     type ConnectStream = ReceiverStream<Result<ControllerMessage, tonic::Status>>;
     async fn connect(
         &self,
@@ -195,6 +198,7 @@ impl Fixture {
             let (logout_sender, mut logout) = mpsc::channel(1);
             let (current, _current_receiver) = watch::channel(None);
             let mut channels = ConfigChannels {
+                catalog_public_keys: Vec::new(),
                 current,
                 tick_statuses: None,
             };

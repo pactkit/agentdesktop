@@ -8,6 +8,7 @@ service FleetAgent {
   rpc RenewDeviceCertificate(RenewDeviceCertificateRequest) returns (DeviceCertificateResponse);
   rpc GetLlmGatewayCredential(LlmGatewayCredentialRequest) returns (LlmGatewayCredentialResponse);
   rpc GetDeviceUsage(DeviceUsageRequest) returns (DeviceUsageResponse);
+  rpc GetAgentCatalog(GetAgentCatalogRequest) returns (GetAgentCatalogResponse);
   rpc Connect(stream AgentMessage) returns (stream ControllerMessage);
 }
 
@@ -111,6 +112,19 @@ message DeviceUsageResponse {
   repeated UsageBucket buckets = 6;
   repeated UsageGroup by_tool = 7;
   repeated UsageGroup by_model = 8;
+}
+
+// Authenticated read-only catalog synchronization; the endpoint verifies the signed envelope.
+message GetAgentCatalogRequest {
+  uint64 known_revision = 1;
+  string known_sha256 = 2;
+}
+
+message GetAgentCatalogResponse {
+  bool unchanged = 1;
+  uint64 revision = 2;
+  string sha256 = 3;
+  bytes signed_catalog_json = 4;
 }
 
 message AgentMessage {

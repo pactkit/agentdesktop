@@ -91,6 +91,18 @@ pub struct CatalogPublicKey {
     pub public_key: String,
 }
 
+/// Validate local trust pins before opening network connections.
+pub fn validate_public_keys(keys: &[CatalogPublicKey]) -> anyhow::Result<()> {
+    ensure!(keys.len() <= 32, "at most 32 catalog public keys are supported");
+    let mut ids = BTreeSet::new();
+    for key in keys {
+        ensure!(!key.key_id.trim().is_empty() && key.key_id.len() <= 128 && ids.insert(&key.key_id), "empty, oversized or duplicate catalog key ID");
+        let raw = BASE64.decode(key.public_key.as_bytes()).context("decode catalog public key")?;
+        ensure!(raw.len() == 32, "catalog public key must be 32 bytes");
+    }
+    Ok(())
+}
+
 /// A verified catalog and the exact bytes its signature covers.
 #[derive(Clone, Debug)]
 pub struct CatalogSnapshot {
@@ -115,6 +127,7 @@ impl SignedCatalog {
     /// A key id that is not pinned is rejected even when the signature is
     /// otherwise valid. The caller is responsible for revision ordering.
     pub fn verify(&self, keys: &[CatalogPublicKey]) -> anyhow::Result<CatalogSnapshot> {
+        validate_public_keys(keys)?;
         validate_catalog(&self.catalog)?;
 
         let mut matching = keys.iter().filter(|key| key.key_id == self.key_id);

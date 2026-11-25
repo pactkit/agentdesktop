@@ -101,6 +101,9 @@ pub struct DaemonStartupConfig {
     /// Pi paths.
     #[serde(default)]
     pub pi: PiStartupConfig,
+    /// Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub catalog_public_keys: Vec<crate::catalog::CatalogPublicKey>,
     /// Local loopback LLM proxy.
     #[serde(default)]
     pub llm_proxy: LlmProxyStartupConfig,
@@ -520,6 +523,9 @@ pub struct ControllerConfig {
     /// Daemon configuration distributed to enrolled devices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daemon_config: Option<ControllerDaemonConfig>,
+    /// Signed agent catalog served to enrolled devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_catalog: Option<ControllerAgentCatalogConfig>,
     /// LLM gateway JWT signing settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway_jwt: Option<ControllerGatewayJwtConfig>,
@@ -536,6 +542,17 @@ pub struct ControllerConfig {
     /// This escape hatch is only appropriate for isolated local development.
     #[serde(default)]
     pub allow_insecure_dev: bool,
+}
+
+/// Signed agent catalog served by the controller.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ControllerAgentCatalogConfig {
+    /// Path to the signed catalog JSON file. Relative to the controller configuration directory.
+    pub path: PathBuf,
+    /// Pinned Ed25519 public keys used to validate the file at load time.
+    pub public_keys: Vec<crate::catalog::CatalogPublicKey>,
 }
 
 /// Authentication and exposure policy for the management API and UI.
@@ -1632,6 +1649,9 @@ pub fn load_controller(path: &Path) -> anyhow::Result<ControllerConfig> {
     if let Some(daemon) = &mut config.daemon_config {
         resolve_relative(&mut daemon.path, directory);
     }
+    if let Some(catalog) = &mut config.agent_catalog {
+        resolve_relative(&mut catalog.path, directory);
+    }
     if let Some(tokens) = &mut config.enrollment_tokens {
         for issuer in &mut tokens.issuers {
             resolve_relative(&mut issuer.public_key_path, directory);
@@ -1674,6 +1694,11 @@ pub fn parse_controller(contents: &str) -> anyhow::Result<ControllerConfig> {
         }
         ControllerAdminAccess::Local => {}
         ControllerAdminAccess::Authenticated(admin) => validate_admin_authenticated(admin)?,
+    }
+    if let Some(catalog) = &config.agent_catalog {
+        anyhow::ensure!(!catalog.path.as_os_str().is_empty(), "agentCatalog.path cannot be empty");
+        anyhow::ensure!(!catalog.public_keys.is_empty(), "agentCatalog.publicKeys cannot be empty");
+        crate::catalog::validate_public_keys(&catalog.public_keys)?;
     }
     let oidc = &config.oidc;
     if oidc.client_id.trim().is_empty() {
@@ -1864,6 +1889,11 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
                 "controller.enrollmentTokenPath cannot be combined with deviceAuthorization"
             );
         }
+    }
+    if let Some(startup) = &config.daemon {
+        crate::catalog::validate_public_keys(&startup.catalog_public_keys)?;
+        anyhow::ensure!(startup.catalog_public_keys.is_empty() || config.controller.is_some(),
+            "daemon.catalogPublicKeys requires a controller");
     }
     if config.inventory_interval.is_zero() {
         anyhow::bail!("inventoryInterval must be greater than zero");

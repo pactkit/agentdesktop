@@ -2,7 +2,8 @@ use std::{net::SocketAddr, pin::Pin, time::Duration};
 
 use agentdesktop_proto::fleet::{
     AgentMessage, ControllerMessage, DeviceCertificateResponse, DeviceUsageRequest,
-    DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse, LlmGatewayCredentialRequest,
+    DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse, GetAgentCatalogRequest,
+    GetAgentCatalogResponse, LlmGatewayCredentialRequest,
     LlmGatewayCredentialResponse, LoginConfiguration, LoginConfigurationRequest,
     RenewDeviceCertificateRequest, fleet_agent_client::FleetAgentClient,
     fleet_agent_server::FleetAgent,
@@ -79,6 +80,10 @@ impl FleetAgent for Slow {
         &self,
         _: Request<DeviceUsageRequest>,
     ) -> Result<Response<DeviceUsageResponse>, Status> {
+        Err(Status::unimplemented("test"))
+    }
+
+    async fn get_agent_catalog(&self, _: Request<GetAgentCatalogRequest>) -> Result<Response<GetAgentCatalogResponse>, Status> {
         Err(Status::unimplemented("test"))
     }
 
