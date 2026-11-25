@@ -520,7 +520,12 @@ impl Database {
             .bind(i64::from(status.attempt))
             .fetch_optional(&mut *tx)
             .await?;
-            previous == Some((state.proto_value(), status.error_code.clone()))
+            previous.as_ref().is_some_and(|(prior_state, prior_error)| {
+                (*prior_state == state.proto_value() && prior_error == &status.error_code)
+                    // An expired dispatch never acquired start authorization.
+                    // A late failure observation may clear the endpoint outbox.
+                    || (*prior_state == JobState::Expired.proto_value() && state == JobState::Failed)
+            })
         };
         tx.commit().await?;
         Ok(acknowledged)

@@ -594,6 +594,19 @@ async fn management_routes_check_precise_operations() {
             "{method} {path}"
         );
     }
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/v1/devices/device-1/jobs")
+        .header("sec-fetch-site", "same-origin")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"agent_id":"codex","version":"1.0","action":"install","idempotency_key":"one","deadline_unix_seconds":0}"#))
+        .unwrap();
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        calls.lock().unwrap().drain(..).collect::<Vec<_>>(),
+        ["device-jobs.create device-1"]
+    );
     std::fs::remove_file(path).unwrap();
 }
 

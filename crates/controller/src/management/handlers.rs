@@ -201,6 +201,15 @@ pub(super) async fn create_device_job(
     {
         return Err(HandlerError::BadRequest("invalid deadline or idempotency key"));
     }
+    let safe = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value.as_bytes()[0].is_ascii_alphanumeric()
+            && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    };
+    if !safe(&input.agent_id) || !safe(&input.version) {
+        return Err(HandlerError::BadRequest("invalid agent or version"));
+    }
     let action = match input.action.as_str() {
         "install" => JobAction::Install,
         "update" => JobAction::Update,

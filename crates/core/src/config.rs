@@ -2468,6 +2468,14 @@ mod tests {
     }
 
     #[test]
+    fn catalog_job_enablement_is_local_and_requires_pins() {
+        assert!(super::parse_local_daemon("daemon: { allowCatalogJobs: true }").is_err());
+        assert!(super::parse_daemon("daemon: { allowCatalogJobs: true }").is_err());
+        let config = super::parse_local_daemon("daemon: {}").unwrap();
+        assert!(!config.daemon.unwrap().allow_catalog_jobs);
+    }
+
+    #[test]
     fn startup_settings_are_local_only_and_reject_unknown_fields() {
         let yaml = "daemon:\n  user: true\n  stateDir: /tmp/device\n  socket: /tmp/device.sock\n";
         let config = super::parse_local_daemon(yaml).unwrap();
