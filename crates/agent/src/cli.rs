@@ -22,7 +22,12 @@ pub enum ClientCommand {
     /// Discover locally installed agents.
     Discover,
     /// Report documented native governance capabilities (not compliance evidence).
-    Capabilities,
+    Capabilities {
+        /// Require documented version support for HOST:CAPABILITY (repeatable).
+        /// Does not prove runtime enforcement.
+        #[arg(long, value_name = "HOST:CAPABILITY")]
+        require: Vec<String>,
+    },
     /// Print the daemon's local startup configuration.
     Config,
     /// Print a short-lived credential for an LLM gateway.
@@ -144,10 +149,11 @@ pub async fn run(command: ClientCommand, socket: PathBuf) -> anyhow::Result<()> 
                 }
             }
         }
-        ClientCommand::Capabilities => {
+        ClientCommand::Capabilities { require } => {
             let discovery: Discovery = client::get(&socket, "/v1/discovery").await?;
             let reports = crate::provider::capabilities::assess(&discovery, std::env::consts::OS);
             println!("{}", serde_json::to_string_pretty(&reports)?);
+            crate::provider::capabilities::require_documented(&reports, &require)?;
         }
         ClientCommand::Config => {
             let config: DaemonConfig = client::get(&socket, "/v1/config").await?;

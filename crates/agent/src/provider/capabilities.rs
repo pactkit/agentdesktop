@@ -158,6 +158,26 @@ pub fn assess<'a>(discovery: &'a Discovery, os: &str) -> Vec<Assessment<'a>> {
         .collect()
 }
 
+/// Explicit preflight only. Success means documented version support, not that
+/// a policy has been applied, loaded, or enforced. Unknown requirements fail.
+pub fn require_documented(reports: &[Assessment<'_>], required: &[String]) -> anyhow::Result<()> {
+    for requirement in required {
+        let (host, id) = requirement
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("expected HOST:CAPABILITY, got {requirement}"))?;
+        let report = reports
+            .iter()
+            .find(|report| report.capability.host == host && report.capability.id == id)
+            .ok_or_else(|| anyhow::anyhow!("unknown governance capability {requirement}"))?;
+        anyhow::ensure!(
+            report.availability == Availability::Documented,
+            "governance capability {requirement}: {:?}",
+            report.availability
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,5 +238,11 @@ mod tests {
         assert_eq!(reports[0].availability, Availability::Documented);
         assert!(reports.iter().all(|report| !report.runtime_verified));
         assert_eq!(reports[1].availability, Availability::NotDiscovered);
+        assert!(
+            require_documented(&reports, &["codex:permissions.profile_allowlist".into()]).is_ok()
+        );
+        assert!(require_documented(&reports, &["opencode:skill.policy".into()]).is_err());
+        assert!(require_documented(&reports, &["dsh:skill.policy".into()]).is_err());
+        assert!(require_documented(&reports, &["invalid".into()]).is_err());
     }
 }
