@@ -144,7 +144,8 @@ function DevicePage({ id }: { id: string }) {
       utcOffsetMinutes: String(utcOffsetMinutes()),
     })}`,
   );
-  const [deviceAction, setDeviceAction] = useState<DeviceLifecycleAction | null>(null);
+  const [deviceAction, setDeviceAction] =
+    useState<DeviceLifecycleAction | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [reauthenticate, setReauthenticate] = useState(false);
@@ -161,10 +162,13 @@ function DevicePage({ id }: { id: string }) {
     setReauthenticate(false);
     try {
       const path = `/api/v1/devices/${encodeURIComponent(id)}`;
-      await request(deviceAction === "delete" ? path : `${path}/${deviceAction}`, {
-        method: deviceAction === "delete" ? "DELETE" : "POST",
-        signal: controller.signal,
-      });
+      await request(
+        deviceAction === "delete" ? path : `${path}/${deviceAction}`,
+        {
+          method: deviceAction === "delete" ? "DELETE" : "POST",
+          signal: controller.signal,
+        },
+      );
       if (!controller.signal.aborted) navigate("/devices");
     } catch (error) {
       if (
@@ -172,7 +176,9 @@ function DevicePage({ id }: { id: string }) {
         (error instanceof Error && error.name === "AbortError")
       )
         return;
-      setDeleteError(error instanceof Error ? error.message : "Device operation failed");
+      setDeleteError(
+        error instanceof Error ? error.message : "Device operation failed",
+      );
       setReauthenticate(
         error instanceof ApiError && error.code === "reauthentication_required",
       );

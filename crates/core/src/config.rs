@@ -2450,10 +2450,9 @@ mod tests {
             admin.resolve_path(std::path::Path::new("admin-secret")),
             directory.join("admin-secret")
         );
-        assert_eq!(
-            admin.resolve_path(std::path::Path::new("/run/secrets/admin")),
-            std::path::Path::new("/run/secrets/admin")
-        );
+        let absolute_secret = directory.parent().unwrap().join("absolute-admin-secret");
+        assert!(absolute_secret.is_absolute());
+        assert_eq!(admin.resolve_path(&absolute_secret), absolute_secret);
         let super::ControllerAdminTransport::Tls { certificate, key } = admin.transport else {
             panic!("expected tls");
         };
