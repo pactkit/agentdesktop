@@ -211,6 +211,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/llm-gateway/credential", get(llm_gateway_credential))
         .route("/v1/llm-gateway/login", post(llm_gateway_login))
         .route("/v1/usage", get(device_usage))
+        .route("/v1/catalog-jobs", get(catalog_jobs).post(request_catalog_job))
         .route("/v1/programs", get(programs))
         .route("/v1/programs/choice", post(change_program_choice))
         .layer(Extension(Arc::new(
@@ -612,6 +613,97 @@ async fn controller_subscription_credential(
     .await
     .map_err(bad_gateway)?;
     Ok(subscription::combine(subscription, identity))
+}
+
+fn catalog_job_execution_enabled(state: &AppState) -> bool {
+    cfg!(target_os = "macos")
+        && state.daemon_info.scope == agentdesktop_core::model::DaemonScope::User
+        && state.config.daemon.as_ref().is_some_and(|startup| {
+            startup.allow_catalog_jobs && !startup.catalog_public_keys.is_empty()
+        })
+}
+
+async fn catalog_jobs(
+    State(state): State<AppState>,
+) -> Result<Json<agentdesktop_core::model::CatalogJobsView>, (StatusCode, String)> {
+    use agentdesktop_core::model::{CatalogAgentView, CatalogJobView, CatalogJobsView};
+    use agentdesktop_proto::fleet::exchange_agent_job_request::Operation;
+
+    let mut view = CatalogJobsView {
+        local_execution_enabled: catalog_job_execution_enabled(&state),
+        ..Default::default()
+    };
+    let Some(controller) = state.config.controller.as_ref() else { return Ok(Json(view)); };
+    let Some(startup) = state.config.daemon.as_ref() else { return Ok(Json(view)); };
+    let device_id = crate::identity::load_device_id(&state.state_dir.join("identity.json"))
+        .map_err(bad_gateway)?;
+    let Some(device_id) = device_id else { return Ok(Json(view)); };
+    if !startup.catalog_public_keys.is_empty() {
+        let scope = agentdesktop_core::catalog::sha256_hex(
+            format!("{}\0{}", controller.address, device_id).as_bytes()
+        );
+        let cache = crate::catalog::CatalogCache::load(
+            &state.state_dir.join("catalog-scopes").join(scope), &startup.catalog_public_keys,
+        );
+        if let (Some(snapshot), Some(status)) = (cache.snapshot(), cache.status()) {
+            view.revision = Some(snapshot.catalog.revision);
+            view.sha256 = Some(snapshot.sha256.clone());
+            view.expires_at = Some(snapshot.catalog.expires_at);
+            view.last_sync_unix_seconds = Some(status.last_sync_unix_seconds);
+            view.entries = snapshot.catalog.entries.iter().map(|entry| CatalogAgentView {
+                id: entry.id.clone(),
+                display_name: entry.display_name.clone(),
+                versions: entry.versions.iter().map(|version| version.version.clone()).collect(),
+                supported: entry.platforms.iter().any(|os| os == std::env::consts::OS)
+                    && entry.architectures.iter().any(|arch| arch == std::env::consts::ARCH),
+            }).collect();
+        }
+    }
+    let reply = remote::device_job_exchange(controller, &state.state_dir, Operation::List(true))
+        .await.map_err(|error| {
+            tracing::warn!(%error, "read catalog jobs failed");
+            (StatusCode::BAD_GATEWAY, "controller job history unavailable".into())
+        })?;
+    view.self_service_allowed = view.local_execution_enabled && reply.self_service_allowed
+        && view.expires_at.is_some_and(|expires| expires > std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+    view.jobs = reply.jobs.into_iter().map(|job| CatalogJobView {
+        id: job.id, agent_id: job.agent_id, version: job.version,
+        action: job.action, state: job.state, attempt: job.attempt,
+        created_at: job.created_at, updated_at: job.updated_at,
+        deadline_unix_seconds: job.deadline_unix_seconds, error_code: job.error_code,
+    }).collect();
+    Ok(Json(view))
+}
+
+async fn request_catalog_job(
+    State(state): State<AppState>,
+    Json(input): Json<agentdesktop_core::model::CatalogJobRequest>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    use agentdesktop_proto::fleet::{JobAction, SelfServiceJobRequest, exchange_agent_job_request::Operation};
+    if !catalog_job_execution_enabled(&state) {
+        return Err((StatusCode::FORBIDDEN, "catalog jobs are disabled in this local daemon".into()));
+    }
+    let controller = state.config.controller.as_ref()
+        .ok_or((StatusCode::FAILED_DEPENDENCY, "no controller configured".into()))?;
+    let action = match input.action.as_str() {
+        "install" => JobAction::Install,
+        "update" => JobAction::Update,
+        "uninstall" => JobAction::Uninstall,
+        _ => return Err((StatusCode::BAD_REQUEST, "unsupported job action".into())),
+    };
+    let request = SelfServiceJobRequest {
+        agent_id: input.agent_id, version: input.version, action: action as i32,
+        idempotency_key: input.idempotency_key, deadline_unix_seconds: input.deadline_unix_seconds,
+        catalog_revision: input.catalog_revision, catalog_sha256: input.catalog_sha256,
+    };
+    let reply = remote::device_job_exchange(controller, &state.state_dir, Operation::Enqueue(request))
+        .await.map_err(|error| {
+            tracing::warn!(%error, "catalog job request rejected or unavailable");
+            (StatusCode::BAD_GATEWAY, "job request rejected or response unavailable; retry the same request".into())
+        })?;
+    let job = reply.job.ok_or((StatusCode::BAD_GATEWAY, "controller did not return a job identity".into()))?;
+    Ok(Json(job.job_id))
 }
 
 async fn device_usage(

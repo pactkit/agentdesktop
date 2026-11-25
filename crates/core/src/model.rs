@@ -6,6 +6,57 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+/// Only catalog display metadata is exposed to the desktop, not artifact
+/// URLs, signatures, trust pins or local file paths.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAgentView {
+    pub id: String,
+    pub display_name: String,
+    pub versions: Vec<String>,
+    pub supported: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogJobView {
+    pub id: String,
+    pub agent_id: String,
+    pub version: String,
+    pub action: i32,
+    pub state: i32,
+    pub attempt: u32,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub deadline_unix_seconds: i64,
+    pub error_code: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogJobsView {
+    pub revision: Option<u64>,
+    pub sha256: Option<String>,
+    pub expires_at: Option<u64>,
+    pub last_sync_unix_seconds: Option<u64>,
+    pub entries: Vec<CatalogAgentView>,
+    pub jobs: Vec<CatalogJobView>,
+    pub local_execution_enabled: bool,
+    pub self_service_allowed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CatalogJobRequest {
+    pub agent_id: String,
+    pub version: String,
+    pub action: String,
+    pub idempotency_key: String,
+    pub deadline_unix_seconds: u64,
+    pub catalog_revision: u64,
+    pub catalog_sha256: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Discovery {

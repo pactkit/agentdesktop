@@ -710,6 +710,25 @@ pub async fn llm_gateway_credential(
     })
 }
 
+/// Calls the device-scoped job endpoint with the same identity and timeout
+/// boundary as other authenticated unary fleet operations.
+pub(crate) async fn device_job_exchange(
+    controller: &ControllerConnectionConfig,
+    state_dir: &Path,
+    operation: proto::exchange_agent_job_request::Operation,
+) -> anyhow::Result<proto::ExchangeAgentJobResponse> {
+    let identity_path = state_dir.join("identity.json");
+    let mut identity = identity::load(&identity_path)?.context("device is not enrolled")?;
+    refresh_oauth(&mut identity, &identity_path, false).await?;
+    let call = async {
+        let mut client = client(controller, Some(&identity)).await?;
+        let mut request = Request::new(proto::ExchangeAgentJobRequest { operation: Some(operation) });
+        authenticate_request(&identity, &mut request)?;
+        anyhow::Ok(client.exchange_agent_job(request).await?.into_inner())
+    };
+    time::timeout(Duration::from_secs(15), call).await?
+}
+
 /// The gateway usage the controller recorded for this device. A controller
 /// without usage support reports usage as not collected.
 pub async fn device_usage(
