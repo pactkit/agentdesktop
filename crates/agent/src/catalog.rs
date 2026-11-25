@@ -84,7 +84,7 @@ impl CatalogCache {
             Ok(snapshot) if snapshot.sha256 == pointer.sha256 && snapshot.catalog.revision == pointer.revision => Self {
                 snapshot: Some(Arc::new(snapshot)),
                 last_sync: Some(pointer.last_sync_unix_seconds),
-                stale: false,
+                stale: true,
             },
             Ok(snapshot) => {
                 warn!(
@@ -121,6 +121,10 @@ impl CatalogCache {
             snapshot.catalog.revision > 0,
             "catalog revision must be positive"
         );
+        ensure!(
+            snapshot.catalog.created_at <= now_unix_seconds && !snapshot.catalog.is_expired(now_unix_seconds),
+            "catalog not currently valid"
+        );
         if let Some(current) = self.snapshot.as_ref() {
             if snapshot.catalog.revision < current.catalog.revision {
                 bail!(
@@ -131,7 +135,19 @@ impl CatalogCache {
             }
             if snapshot.catalog.revision == current.catalog.revision {
                 if snapshot.sha256 == current.sha256 {
-                    return Ok(Arc::clone(current));
+                    // Reconfirm a previously verified snapshot without rewriting
+                    // its signed envelope. Persist the new observation time.
+                    let current = Arc::clone(current);
+                    let directory = catalog_dir(state_dir);
+                    let pointer = CatalogPointer {
+                        revision: current.catalog.revision,
+                        sha256: current.sha256.clone(),
+                        last_sync_unix_seconds: now_unix_seconds,
+                    };
+                    secure_fs::atomic_write(&directory.join("current"), &serde_json::to_vec(&pointer)?, 0o600)?;
+                    self.last_sync = Some(now_unix_seconds);
+                    self.stale = false;
+                    return Ok(current);
                 }
                 bail!(
                     "catalog revision {} has a different hash",
@@ -141,6 +157,7 @@ impl CatalogCache {
         }
 
         let directory = catalog_dir(state_dir);
+        secure_fs::ensure_private_dir(state_dir)?;
         secure_fs::ensure_private_dir(&directory)?;
         let revision_dir = directory.join(snapshot.catalog.revision.to_string());
         secure_fs::ensure_private_dir(&revision_dir)?;
@@ -356,6 +373,9 @@ mod tests {
             .unwrap();
         let snapshot = cache.replace(directory.path(), &bytes, &[key], 20).unwrap();
         assert_eq!(snapshot.catalog.revision, 1);
-        assert_eq!(cache.status().unwrap().last_sync_unix_seconds, 10);
+        assert_eq!(cache.status().unwrap().last_sync_unix_seconds, 20);
+        assert!(!cache.status().unwrap().stale);
+        let reloaded = CatalogCache::load(directory.path(), &[]);
+        assert!(reloaded.snapshot().is_none());
     }
 }

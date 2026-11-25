@@ -26,3 +26,17 @@ Acceptance gates: cargo fmt, cargo test, management auth tests, PostgreSQL
 integration, real enrollment and active-stream revocation, frontend build and
 Storybook. Nothing is marked runtime verified. Catalog/installer/jobs,
 replacement enrollment and Desktop Assistant remain part of PR #5 recovery.
+
+## Catalog port
+
+The signed catalog types, verification, controller store and endpoint cache
+have been restored. The controller uses the authenticated GetAgentCatalog RPC
+and the daemon requests a verified catalog every five minutes with locally
+pinned keys (daemon.catalogPublicKeys). Catalog scope is bound to controller
+address and enrolled device identity. Keys are local startup configuration,
+not controller-delivered policy. Expired/future catalogs, duplicate IDs and
+invalid hashes/URLs are rejected. A failed sync retains the last snapshot as
+stale in memory. The catalog is not yet wired to an installer or job runtime;
+no executable is installed or run by this port. Schema generation and runtime
+conformance remain unverified. CI now covers integration pushes using standard
+GitHub-hosted Linux runners, subject to repository Actions permissions.

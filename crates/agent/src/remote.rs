@@ -846,7 +846,12 @@ async fn connect(
     catalog_tick.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
     // Isolate the cache per controller/device identity. Trust pins are local only.
     let catalog_scope = agentdesktop_core::catalog::sha256_hex(format!("{}\0{}", controller.address, identity.device_id).as_bytes());
-    let catalog_dir = state_dir.join("catalog-scopes").join(catalog_scope);
+    let catalog_root = state_dir.join("catalog-scopes");
+    let catalog_dir = catalog_root.join(catalog_scope);
+    if !channels.catalog_public_keys.is_empty() {
+        secure_fs::ensure_private_dir(&catalog_root)?;
+        secure_fs::ensure_private_dir(&catalog_dir)?;
+    }
     let mut catalog_cache = crate::catalog::CatalogCache::load(&catalog_dir, &channels.catalog_public_keys);
     let reconnect_at = identity
         .oauth

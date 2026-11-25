@@ -17,6 +17,11 @@
 |`adminListener.limits.connectionsPerAddress`|integer|Open management connections allowed from one client address: an IPv4 address, or an IPv6 /64. At the limit, that address's connection idle the longest is closed to admit a new one. Defaults to `256`, the same as `maxConnections`, because behind a proxy or on loopback every connection has the same address.|
 |`adminListener.limits.maxConnections`|integer|Open management connections allowed in total. At the limit, the connection idle the longest is closed to admit a new one. Defaults to `256`.|
 |`adminListener.listen`|string|Address on which the management listener accepts connections. Defaults to `127.0.0.1:8080`. Local access requires a loopback address.|
+|`agentCatalog`|object|Signed agent catalog served to enrolled devices.|
+|`agentCatalog.path`|string|Path to the signed catalog JSON file. Relative to the controller configuration directory.|
+|`agentCatalog.publicKeys`|[]object|Pinned Ed25519 public keys used to validate the file at load time.|
+|`agentCatalog.publicKeys[].keyId`|string||
+|`agentCatalog.publicKeys[].publicKey`|string|Base64 raw 32-byte Ed25519 public key.|
 |`allowInsecureDev`|boolean|Permit a non-HTTPS OIDC issuer for isolated local development.<br><br>This escape hatch is only appropriate for isolated local development.|
 |`daemonConfig`|object|Daemon configuration distributed to enrolled devices.|
 |`daemonConfig.path`|string|Path to the watched YAML configuration distributed to enrolled devices.<br><br>Relative paths are resolved from the controller configuration directory.<br>Valid file changes are published to connected devices automatically.|
