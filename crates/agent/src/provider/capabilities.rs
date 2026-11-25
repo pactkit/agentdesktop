@@ -101,12 +101,7 @@ fn stable_version(value: &str) -> Option<[u64; 3]> {
     parts.next().is_none().then_some(result)
 }
 
-pub fn evaluate(
-    host: &str,
-    id: &str,
-    version: Option<&str>,
-    os: &str,
-) -> Availability {
+pub fn evaluate(host: &str, id: &str, version: Option<&str>, os: &str) -> Availability {
     let Some(capability) = REGISTRY
         .iter()
         .find(|item| item.host == host && item.id == id)
@@ -139,7 +134,7 @@ pub struct Assessment<'a> {
     pub runtime_verified: bool,
 }
 
-pub fn assess(discovery: &Discovery, os: &str) -> Vec<Assessment<'_>> {
+pub fn assess<'a>(discovery: &'a Discovery, os: &str) -> Vec<Assessment<'a>> {
     REGISTRY
         .iter()
         .map(|capability| {
@@ -169,9 +164,7 @@ mod tests {
 
     #[test]
     fn codex_profile_gate_is_numeric_and_inclusive() {
-        let check = |version| {
-            evaluate("codex", "permissions.profile_allowlist", version, "linux")
-        };
+        let check = |version| evaluate("codex", "permissions.profile_allowlist", version, "linux");
         assert_eq!(check(Some("0.137.9")), Availability::UnsupportedVersion);
         assert_eq!(check(Some("0.138.0")), Availability::Documented);
         assert_eq!(check(Some("0.153.4")), Availability::Documented);
