@@ -54,3 +54,14 @@ PostgreSQL and application integration tests remain pending.
 
 The initial migration fix is preparatory; it does not resolve the remaining
 Git or semantic conflicts. Release is not modified by this commit.
+
+## Incremental port: Device Lifecycle
+
+PR #6 (integration/legacy-device-lifecycle, 4a31d9f) targets release, with the
+new controller authentication and enrollment stack preserved. It implements
+retire/revoke, atomic audit, receipt replay protection, active stream checks,
+scoped APIs and Controller UI. It carries the same renumbered SQL migrations.
+This is a separate validation slice, not proof that PR #5 is mergeable. After
+validation and integration, use the new release as the base for remaining
+legacy recovery; do not import the old controller modules or reapply duplicate
+migrations. New-key replacement enrollment and device limits remain open.
