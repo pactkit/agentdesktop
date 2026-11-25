@@ -119,9 +119,13 @@ pub async fn run(
     let device_certificate_issuer = DeviceCertificateIssuer::from_pem(ca_certificate, &ca_key)
         .context("initialize device certificate issuer")?;
     tracing::info!("device certificate issuance enabled");
-    let catalog = config.agent_catalog.as_ref()
+    let catalog = config
+        .agent_catalog
+        .as_ref()
         .map(|settings| CatalogStore::load(&settings.path, &settings.public_keys))
-        .transpose().context("initialize signed agent catalog")?.unwrap_or_default();
+        .transpose()
+        .context("initialize signed agent catalog")?
+        .unwrap_or_default();
     let service = FleetAgentService::new(
         Some(oidc),
         database,

@@ -1,9 +1,12 @@
 //! Device retirement/revocation on the current management and enrollment stack.
-use std::{fmt, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fmt,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
+use crate::{database::Database, management::auth::authentication::Principal};
 use anyhow::Context;
 use serde::Serialize;
-use crate::{database::Database, management::auth::authentication::Principal};
 
 #[derive(Debug)]
 pub(crate) struct InactiveDevice;
@@ -60,7 +63,10 @@ pub(crate) enum Transition {
 }
 
 impl Database {
-    pub(crate) async fn device_lifecycle(&self, id: &str) -> anyhow::Result<Option<DeviceLifecycle>> {
+    pub(crate) async fn device_lifecycle(
+        &self,
+        id: &str,
+    ) -> anyhow::Result<Option<DeviceLifecycle>> {
         sqlx::query_as(
             "SELECT state, retired_at, superseded_by, replaces_device_id FROM devices WHERE id = $1",
         )
@@ -90,7 +96,11 @@ impl Database {
         target: Target,
         actor: &Principal,
     ) -> anyhow::Result<Transition> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs().try_into().unwrap_or(i64::MAX);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_secs()
+            .try_into()
+            .unwrap_or(i64::MAX);
         let mut tx = self.pool().begin().await?;
         let target_state = target.as_str();
         let changed = sqlx::query(
@@ -152,8 +162,12 @@ mod tests {
         use crate::oidc::{CompletedEnrollment, EnrolledUser, EnrollmentCredential};
         use agentdesktop_proto::fleet::EnrollResponse;
         let dir = tempfile::tempdir().unwrap();
-        let db = Database::connect(&format!("sqlite://{}?mode=rwc", dir.path().join("receipt.db").display()))
-            .await.unwrap();
+        let db = Database::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            dir.path().join("receipt.db").display()
+        ))
+        .await
+        .unwrap();
         let completed = CompletedEnrollment {
             hostname: "host".into(),
             credential: EnrollmentCredential::User(EnrolledUser {
@@ -168,34 +182,97 @@ mod tests {
             client_certificate_expires_at_unix_seconds: 100,
         };
         db.finish_enrollment(&completed, &response).await.unwrap();
-        assert_eq!(db.enrollment_receipt("device").await.unwrap(), Some(response.clone()));
-        db.transition_device("device", Target::Revoked, &Principal::local()).await.unwrap();
-        assert!(db.enrollment_receipt("device").await.unwrap_err().is::<InactiveDevice>());
-        assert!(db.finish_enrollment(&completed, &response).await.unwrap_err().is::<InactiveDevice>());
-        assert_eq!(db.device_lifecycle("device").await.unwrap().unwrap().state, "revoked");
+        assert_eq!(
+            db.enrollment_receipt("device").await.unwrap(),
+            Some(response.clone())
+        );
+        db.transition_device("device", Target::Revoked, &Principal::local())
+            .await
+            .unwrap();
+        assert!(
+            db.enrollment_receipt("device")
+                .await
+                .unwrap_err()
+                .is::<InactiveDevice>()
+        );
+        assert!(
+            db.finish_enrollment(&completed, &response)
+                .await
+                .unwrap_err()
+                .is::<InactiveDevice>()
+        );
+        assert_eq!(
+            db.device_lifecycle("device").await.unwrap().unwrap().state,
+            "revoked"
+        );
     }
 
     #[tokio::test]
     async fn retirement_and_revocation_preserve_records_and_are_idempotent() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Database::connect(&format!("sqlite://{}?mode=rwc", dir.path().join("lifecycle.db").display()))
-            .await.unwrap();
-        db.enroll_device("device", "host", "issuer", "subject", None).await.unwrap();
+        let db = Database::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            dir.path().join("lifecycle.db").display()
+        ))
+        .await
+        .unwrap();
+        db.enroll_device("device", "host", "issuer", "subject", None)
+            .await
+            .unwrap();
         let actor = Principal::local();
-        assert!(matches!(db.transition_device("missing", Target::Revoked, &actor).await.unwrap(), Transition::Missing));
-        assert!(matches!(db.transition_device("device", Target::Retired, &actor).await.unwrap(), Transition::Changed(_)));
-        assert!(matches!(db.transition_device("device", Target::Retired, &actor).await.unwrap(), Transition::Unchanged(_)));
+        assert!(matches!(
+            db.transition_device("missing", Target::Revoked, &actor)
+                .await
+                .unwrap(),
+            Transition::Missing
+        ));
+        assert!(matches!(
+            db.transition_device("device", Target::Retired, &actor)
+                .await
+                .unwrap(),
+            Transition::Changed(_)
+        ));
+        assert!(matches!(
+            db.transition_device("device", Target::Retired, &actor)
+                .await
+                .unwrap(),
+            Transition::Unchanged(_)
+        ));
         assert!(db.device_principal("device").await.is_err());
-        assert!(db.enrollment_receipt("device").await.unwrap_err().is::<InactiveDevice>());
+        assert!(
+            db.enrollment_receipt("device")
+                .await
+                .unwrap_err()
+                .is::<InactiveDevice>()
+        );
         assert!(!db.delete_device("device").await.unwrap());
-        assert!(matches!(db.transition_device("device", Target::Revoked, &actor).await.unwrap(), Transition::Changed(_)));
-        assert!(matches!(db.transition_device("device", Target::Retired, &actor).await.unwrap(), Transition::Conflict));
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE device_id = 'device'")
-            .fetch_one(db.pool()).await.unwrap();
+        assert!(matches!(
+            db.transition_device("device", Target::Revoked, &actor)
+                .await
+                .unwrap(),
+            Transition::Changed(_)
+        ));
+        assert!(matches!(
+            db.transition_device("device", Target::Retired, &actor)
+                .await
+                .unwrap(),
+            Transition::Conflict
+        ));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE device_id = 'device'")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
         assert_eq!(count, 2);
-        assert_eq!(db.device_lifecycle("device").await.unwrap().unwrap().state, "revoked");
+        assert_eq!(
+            db.device_lifecycle("device").await.unwrap().unwrap().state,
+            "revoked"
+        );
         assert_eq!(db.list_devices().await.unwrap()[0].state, "revoked");
-        assert_eq!(db.get_device("device").await.unwrap().unwrap().device.state, "revoked");
+        assert_eq!(
+            db.get_device("device").await.unwrap().unwrap().device.state,
+            "revoked"
+        );
         assert_eq!(db.lifecycle_audit("device").await.unwrap().len(), 2);
     }
 }

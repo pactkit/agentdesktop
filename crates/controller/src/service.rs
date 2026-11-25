@@ -3,9 +3,9 @@ use std::{ops::ControlFlow, pin::Pin, time::Duration};
 use agentdesktop_proto::fleet::{
     AgentMessage, ConfigStatus, ControllerMessage, DaemonConfig, DeviceCertificateResponse,
     DeviceUsageRequest, DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse,
-    GetAgentCatalogRequest, GetAgentCatalogResponse,
-    LlmGatewayCredentialRequest, LlmGatewayCredentialResponse, LoginConfiguration,
-    LoginConfigurationRequest, RenewDeviceCertificateRequest, agent_message, controller_message,
+    GetAgentCatalogRequest, GetAgentCatalogResponse, LlmGatewayCredentialRequest,
+    LlmGatewayCredentialResponse, LoginConfiguration, LoginConfigurationRequest,
+    RenewDeviceCertificateRequest, agent_message, controller_message,
     enroll_device_request::Credential, fleet_agent_server::FleetAgent,
 };
 use futures_core::Stream;
@@ -287,18 +287,30 @@ impl FleetAgent for FleetAgentService {
     ) -> Result<Response<GetAgentCatalogResponse>, Status> {
         self.authenticate_device(&request).await?;
         let known = request.into_inner();
-        let snapshot = self.catalog.current().ok_or_else(|| Status::failed_precondition("no agent catalog configured"))?;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| Status::internal("invalid controller clock"))?.as_secs();
+        let snapshot = self
+            .catalog
+            .current()
+            .ok_or_else(|| Status::failed_precondition("no agent catalog configured"))?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Status::internal("invalid controller clock"))?
+            .as_secs();
         if snapshot.catalog.is_expired(now) || snapshot.catalog.created_at > now {
-            return Err(Status::failed_precondition("agent catalog not currently valid"));
+            return Err(Status::failed_precondition(
+                "agent catalog not currently valid",
+            ));
         }
-        let unchanged = known.known_revision == snapshot.catalog.revision && known.known_sha256 == snapshot.sha256;
+        let unchanged = known.known_revision == snapshot.catalog.revision
+            && known.known_sha256 == snapshot.sha256;
         Ok(Response::new(GetAgentCatalogResponse {
             unchanged,
             revision: snapshot.catalog.revision,
             sha256: snapshot.sha256.clone(),
-            signed_catalog_json: if unchanged { Vec::new() } else { snapshot.signed_catalog_json.clone() },
+            signed_catalog_json: if unchanged {
+                Vec::new()
+            } else {
+                snapshot.signed_catalog_json.clone()
+            },
         }))
     }
 

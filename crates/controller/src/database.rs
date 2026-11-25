@@ -345,7 +345,9 @@ impl Database {
         .await
         .context("load device enrollment receipt")?;
         match row {
-            Some((state, _)) if state != "active" => Err(crate::device_lifecycle::InactiveDevice.into()),
+            Some((state, _)) if state != "active" => {
+                Err(crate::device_lifecycle::InactiveDevice.into())
+            }
             Some((_, Some(json))) => decode_enrollment_receipt(&json).map(Some),
             _ => Ok(None),
         }
@@ -393,10 +395,11 @@ impl Database {
         .await?;
         // Lock the active row in this transaction before returning or storing
         // a receipt. A retired/revoked deterministic device ID cannot enroll again.
-        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
-            .bind(&response.device_id)
-            .execute(&mut *transaction)
-            .await?;
+        let active =
+            sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+                .bind(&response.device_id)
+                .execute(&mut *transaction)
+                .await?;
         if active.rows_affected() != 1 {
             return Err(crate::device_lifecycle::InactiveDevice.into());
         }

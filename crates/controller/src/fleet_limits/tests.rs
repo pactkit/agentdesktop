@@ -3,10 +3,9 @@ use std::{net::SocketAddr, pin::Pin, time::Duration};
 use agentdesktop_proto::fleet::{
     AgentMessage, ControllerMessage, DeviceCertificateResponse, DeviceUsageRequest,
     DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse, GetAgentCatalogRequest,
-    GetAgentCatalogResponse, LlmGatewayCredentialRequest,
-    LlmGatewayCredentialResponse, LoginConfiguration, LoginConfigurationRequest,
-    RenewDeviceCertificateRequest, fleet_agent_client::FleetAgentClient,
-    fleet_agent_server::FleetAgent,
+    GetAgentCatalogResponse, LlmGatewayCredentialRequest, LlmGatewayCredentialResponse,
+    LoginConfiguration, LoginConfigurationRequest, RenewDeviceCertificateRequest,
+    fleet_agent_client::FleetAgentClient, fleet_agent_server::FleetAgent,
 };
 use futures_core::Stream;
 use tokio::{
@@ -83,7 +82,10 @@ impl FleetAgent for Slow {
         Err(Status::unimplemented("test"))
     }
 
-    async fn get_agent_catalog(&self, _: Request<GetAgentCatalogRequest>) -> Result<Response<GetAgentCatalogResponse>, Status> {
+    async fn get_agent_catalog(
+        &self,
+        _: Request<GetAgentCatalogRequest>,
+    ) -> Result<Response<GetAgentCatalogResponse>, Status> {
         Err(Status::unimplemented("test"))
     }
 

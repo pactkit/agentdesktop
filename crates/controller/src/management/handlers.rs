@@ -59,7 +59,9 @@ pub(super) async fn overview(
         .iter()
         .filter(|device| {
             device.state == "active"
-                && device.last_seen_at.is_some_and(|last_seen| now - last_seen <= 90)
+                && device
+                    .last_seen_at
+                    .is_some_and(|last_seen| now - last_seen <= 90)
         })
         .count();
     let config_failures = devices
@@ -121,7 +123,9 @@ pub(super) async fn delete_device(
     .await?;
     if !state.database.delete_device(&device_id).await? {
         if state.database.device_lifecycle(&device_id).await?.is_some() {
-            return Err(HandlerError::Conflict("inactive devices retain their lifecycle record"));
+            return Err(HandlerError::Conflict(
+                "inactive devices retain their lifecycle record",
+            ));
         }
         return Err(HandlerError::NotFound);
     }
@@ -140,7 +144,12 @@ pub(super) async fn device_lifecycle(
         resource: Some(&device_id),
     })
     .await?;
-    state.database.device_lifecycle(&device_id).await?.map(Json).ok_or(HandlerError::NotFound)
+    state
+        .database
+        .device_lifecycle(&device_id)
+        .await?
+        .map(Json)
+        .ok_or(HandlerError::NotFound)
 }
 
 pub(super) async fn device_jobs(
@@ -152,7 +161,8 @@ pub(super) async fn device_jobs(
         verb: Verb::Read,
         resource_class: authorization::DEVICE_JOBS,
         resource: Some(&device_id),
-    }).await?;
+    })
+    .await?;
     if state.database.device_lifecycle(&device_id).await?.is_none() {
         return Err(HandlerError::NotFound);
     }
@@ -204,10 +214,16 @@ async fn transition_device(
         resource: Some(&device_id),
     })
     .await?;
-    match state.database.transition_device(&device_id, target, auth.principal()).await? {
+    match state
+        .database
+        .transition_device(&device_id, target, auth.principal())
+        .await?
+    {
         Transition::Changed(device) | Transition::Unchanged(device) => Ok(Json(device)),
         Transition::Missing => Err(HandlerError::NotFound),
-        Transition::Conflict => Err(HandlerError::Conflict("invalid device lifecycle transition")),
+        Transition::Conflict => Err(HandlerError::Conflict(
+            "invalid device lifecycle transition",
+        )),
     }
 }
 

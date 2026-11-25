@@ -93,11 +93,19 @@ pub struct CatalogPublicKey {
 
 /// Validate local trust pins before opening network connections.
 pub fn validate_public_keys(keys: &[CatalogPublicKey]) -> anyhow::Result<()> {
-    ensure!(keys.len() <= 32, "at most 32 catalog public keys are supported");
+    ensure!(
+        keys.len() <= 32,
+        "at most 32 catalog public keys are supported"
+    );
     let mut ids = BTreeSet::new();
     for key in keys {
-        ensure!(!key.key_id.trim().is_empty() && key.key_id.len() <= 128 && ids.insert(&key.key_id), "empty, oversized or duplicate catalog key ID");
-        let raw = BASE64.decode(key.public_key.as_bytes()).context("decode catalog public key")?;
+        ensure!(
+            !key.key_id.trim().is_empty() && key.key_id.len() <= 128 && ids.insert(&key.key_id),
+            "empty, oversized or duplicate catalog key ID"
+        );
+        let raw = BASE64
+            .decode(key.public_key.as_bytes())
+            .context("decode catalog public key")?;
         ensure!(raw.len() == 32, "catalog public key must be 32 bytes");
     }
     Ok(())
@@ -216,18 +224,27 @@ fn validate_catalog(catalog: &Catalog) -> anyhow::Result<()> {
         );
         let mut versions = BTreeSet::new();
         for version in &entry.versions {
-            ensure!(!version.version.is_empty() && versions.insert(&version.version), "empty or duplicate version");
+            ensure!(
+                !version.version.is_empty() && versions.insert(&version.version),
+                "empty or duplicate version"
+            );
             let url = url::Url::parse(&version.artifact_url).context("invalid artifact URL")?;
             ensure!(
-                url.scheme() == "https" && url.host_str().is_some()
-                    && url.username().is_empty() && url.password().is_none() && url.fragment().is_none(),
+                url.scheme() == "https"
+                    && url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.fragment().is_none(),
                 "catalog entry {} version {} is not HTTPS",
                 entry.id,
                 version.version
             );
             ensure!(
                 version.sha256.len() == 64
-                    && version.sha256.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                    && version
+                        .sha256
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
                 "catalog entry {} version {} has an invalid sha256",
                 entry.id,
                 version.version
@@ -345,8 +362,17 @@ mod tests {
     fn duplicate_key_ids_and_catalog_entries_are_rejected() {
         let (mut catalog, key) = signed();
         assert!(catalog.verify(&[key.clone(), key.clone()]).is_err());
-        catalog.catalog.entries.push(catalog.catalog.entries[0].clone());
-        assert!(catalog.verify(&[key]).unwrap_err().to_string().contains("duplicate catalog entry"));
+        catalog
+            .catalog
+            .entries
+            .push(catalog.catalog.entries[0].clone());
+        assert!(
+            catalog
+                .verify(&[key])
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate catalog entry")
+        );
     }
 
     #[test]

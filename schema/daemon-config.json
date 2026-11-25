@@ -280,7 +280,6 @@
         "catalogPublicKeys": {
           "description": "Locally pinned Ed25519 keys for the signed agent catalog. Empty disables sync.",
           "type": "array",
-          "default": [],
           "items": {
             "$ref": "#/$defs/CatalogPublicKey"
           }

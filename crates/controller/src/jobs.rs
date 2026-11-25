@@ -226,9 +226,8 @@ pub fn event_for_state(state: JobState) -> Option<JobEvent> {
     }
 }
 
-
-use anyhow::{Context, ensure};
 use crate::database::Database;
+use anyhow::{Context, ensure};
 
 /// Bounded summary deliberately excludes the requester and endpoint-supplied diagnostics.
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -247,14 +246,19 @@ pub struct JobSummary {
 fn now_seconds() -> anyhow::Result<i64> {
     Ok(std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs().try_into()?)
+        .as_secs()
+        .try_into()?)
 }
 
 fn same_request(row: &JobRecord, job: &NewJob) -> bool {
-    row.origin == job.origin && row.requested_by == job.requested_by
-        && row.catalog_id == job.catalog_id && row.catalog_revision == job.catalog_revision
-        && row.catalog_sha256 == job.catalog_sha256 && row.agent_id == job.agent_id
-        && row.version == job.version && row.action == job.action as i64
+    row.origin == job.origin
+        && row.requested_by == job.requested_by
+        && row.catalog_id == job.catalog_id
+        && row.catalog_revision == job.catalog_revision
+        && row.catalog_sha256 == job.catalog_sha256
+        && row.agent_id == job.agent_id
+        && row.version == job.version
+        && row.action == job.action as i64
         && row.deadline_unix_seconds == job.deadline_unix_seconds
 }
 
@@ -264,16 +268,46 @@ impl Database {
     /// No public enqueue or dispatch endpoint is enabled by this port.
     pub async fn create_job(&self, job: &NewJob) -> anyhow::Result<JobRecord> {
         let now = now_seconds()?;
-        ensure!(job.action != JobAction::Unspecified && job.catalog_revision > 0, "invalid job action or revision");
-        ensure!(job.deadline_unix_seconds > now && job.deadline_unix_seconds <= now.saturating_add(86400), "invalid job deadline");
-        for value in [&job.device_id, &job.idempotency_key, &job.origin, &job.requested_by, &job.catalog_id, &job.agent_id, &job.version] {
-            ensure!(!value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control), "invalid job field");
+        ensure!(
+            job.action != JobAction::Unspecified && job.catalog_revision > 0,
+            "invalid job action or revision"
+        );
+        ensure!(
+            job.deadline_unix_seconds > now
+                && job.deadline_unix_seconds <= now.saturating_add(86400),
+            "invalid job deadline"
+        );
+        for value in [
+            &job.device_id,
+            &job.idempotency_key,
+            &job.origin,
+            &job.requested_by,
+            &job.catalog_id,
+            &job.agent_id,
+            &job.version,
+        ] {
+            ensure!(
+                !value.trim().is_empty()
+                    && value.len() <= 512
+                    && !value.chars().any(char::is_control),
+                "invalid job field"
+            );
         }
-        ensure!(job.catalog_sha256.len() == 64 && job.catalog_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)), "invalid catalog digest");
+        ensure!(
+            job.catalog_sha256.len() == 64
+                && job
+                    .catalog_sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "invalid catalog digest"
+        );
         let mut tx = self.pool().begin().await?;
         // Serialize against retirement/revocation and concurrent enqueue.
-        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
-            .bind(&job.device_id).execute(&mut *tx).await?;
+        let active =
+            sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+                .bind(&job.device_id)
+                .execute(&mut *tx)
+                .await?;
         ensure!(active.rows_affected() == 1, "device is not active");
         sqlx::query(
             "INSERT INTO agent_jobs
@@ -284,14 +318,32 @@ impl Database {
              ON CONFLICT (device_id,idempotency_key) DO NOTHING",
         )
         .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&job.device_id).bind(&job.idempotency_key).bind(&job.origin)
-        .bind(&job.requested_by).bind(&job.catalog_id).bind(job.catalog_revision)
-        .bind(&job.catalog_sha256).bind(&job.agent_id).bind(&job.version)
-        .bind(job.action as i64).bind(JobState::Queued.proto_value())
-        .bind(job.deadline_unix_seconds).bind(now).execute(&mut *tx).await?;
-        let row: JobRecord = sqlx::query_as("SELECT * FROM agent_jobs WHERE device_id = $1 AND idempotency_key = $2")
-            .bind(&job.device_id).bind(&job.idempotency_key).fetch_one(&mut *tx).await?;
-        ensure!(same_request(&row, job), "idempotency key already belongs to a different request");
+        .bind(&job.device_id)
+        .bind(&job.idempotency_key)
+        .bind(&job.origin)
+        .bind(&job.requested_by)
+        .bind(&job.catalog_id)
+        .bind(job.catalog_revision)
+        .bind(&job.catalog_sha256)
+        .bind(&job.agent_id)
+        .bind(&job.version)
+        .bind(job.action as i64)
+        .bind(JobState::Queued.proto_value())
+        .bind(job.deadline_unix_seconds)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        let row: JobRecord = sqlx::query_as(
+            "SELECT * FROM agent_jobs WHERE device_id = $1 AND idempotency_key = $2",
+        )
+        .bind(&job.device_id)
+        .bind(&job.idempotency_key)
+        .fetch_one(&mut *tx)
+        .await?;
+        ensure!(
+            same_request(&row, job),
+            "idempotency key already belongs to a different request"
+        );
         tx.commit().await?;
         Ok(row)
     }
@@ -305,22 +357,53 @@ impl Database {
     /// Compare-and-swap on both attempt and exact previous state. An old
     /// observation must not overwrite a concurrently accepted/cancelled job.
     /// The caller supplies a trusted event (not an arbitrary remote state).
-    pub async fn transition_job(&self, device_id: &str, job_id: &str, attempt: u32,
-        expected: JobState, event: JobEvent) -> anyhow::Result<bool> {
-        let Some(next) = transition(expected, event) else { return Ok(false); };
-        if expected == next { return Ok(false); }
+    pub async fn transition_job(
+        &self,
+        device_id: &str,
+        job_id: &str,
+        attempt: u32,
+        expected: JobState,
+        event: JobEvent,
+    ) -> anyhow::Result<bool> {
+        let Some(next) = transition(expected, event) else {
+            return Ok(false);
+        };
+        if expected == next {
+            return Ok(false);
+        }
         let now = now_seconds()?;
         let mut tx = self.pool().begin().await?;
-        let active = sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
-            .bind(device_id).execute(&mut *tx).await?;
-        if active.rows_affected() != 1 { return Ok(false); }
-        let result = sqlx::query("UPDATE agent_jobs SET state = $5,updated_at = $6
+        let active =
+            sqlx::query("UPDATE devices SET state = state WHERE id = $1 AND state = 'active'")
+                .bind(device_id)
+                .execute(&mut *tx)
+                .await?;
+        if active.rows_affected() != 1 {
+            return Ok(false);
+        }
+        let result = sqlx::query(
+            "UPDATE agent_jobs SET state = $5,updated_at = $6
             WHERE id = $1 AND device_id = $2 AND attempt = $3 AND state = $4
-            AND ($7 = 0 OR deadline_unix_seconds > $6)")
-            .bind(job_id).bind(device_id).bind(i64::from(attempt)).bind(expected.proto_value())
-            .bind(next.proto_value()).bind(now)
-            .bind(if matches!(event, JobEvent::Dispatch | JobEvent::Accept | JobEvent::Start) { 1_i64 } else { 0_i64 })
-            .execute(&mut *tx).await?;
+            AND ($7 = 0 OR deadline_unix_seconds > $6)",
+        )
+        .bind(job_id)
+        .bind(device_id)
+        .bind(i64::from(attempt))
+        .bind(expected.proto_value())
+        .bind(next.proto_value())
+        .bind(now)
+        .bind(
+            if matches!(
+                event,
+                JobEvent::Dispatch | JobEvent::Accept | JobEvent::Start
+            ) {
+                1_i64
+            } else {
+                0_i64
+            },
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(result.rows_affected() == 1)
     }
@@ -334,15 +417,29 @@ mod tests {
     async fn persistence_rejects_replay_conflicts_and_stale_transitions() {
         use super::*;
         let dir = tempfile::tempdir().unwrap();
-        let db = Database::connect(&format!("sqlite://{}?mode=rwc", dir.path().join("jobs.db").display())).await.unwrap();
-        db.enroll_device("a", "host", "issuer", "subject", None).await.unwrap();
-        db.enroll_device("b", "host", "issuer", "subject", None).await.unwrap();
+        let db = Database::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            dir.path().join("jobs.db").display()
+        ))
+        .await
+        .unwrap();
+        db.enroll_device("a", "host", "issuer", "subject", None)
+            .await
+            .unwrap();
+        db.enroll_device("b", "host", "issuer", "subject", None)
+            .await
+            .unwrap();
         let job = NewJob {
-            device_id: "a".into(), idempotency_key: "key".into(),
-            origin: "admin".into(), requested_by: "operator".into(),
-            catalog_id: "test".into(), catalog_revision: 1,
-            catalog_sha256: "a".repeat(64), agent_id: "codex".into(),
-            version: "1.0".into(), action: JobAction::Install,
+            device_id: "a".into(),
+            idempotency_key: "key".into(),
+            origin: "admin".into(),
+            requested_by: "operator".into(),
+            catalog_id: "test".into(),
+            catalog_revision: 1,
+            catalog_sha256: "a".repeat(64),
+            agent_id: "codex".into(),
+            version: "1.0".into(),
+            action: JobAction::Install,
             deadline_unix_seconds: now_seconds().unwrap() + 600,
         };
         let row = db.create_job(&job).await.unwrap();
@@ -350,15 +447,48 @@ mod tests {
         let mut conflict = job.clone();
         conflict.version = "2.0".into();
         assert!(db.create_job(&conflict).await.is_err());
-        assert!(!db.transition_job("b", &row.id, 1, S::Queued, E::Dispatch).await.unwrap());
-        assert!(!db.transition_job("a", &row.id, 2, S::Queued, E::Dispatch).await.unwrap());
-        assert!(db.transition_job("a", &row.id, 1, S::Queued, E::Dispatch).await.unwrap());
-        assert!(!db.transition_job("a", &row.id, 1, S::Queued, E::Cancel).await.unwrap());
-        assert!(db.transition_job("a", &row.id, 1, S::Dispatched, E::Accept).await.unwrap());
-        db.transition_device("a", crate::device_lifecycle::Target::Revoked, &crate::management::auth::authentication::Principal::local()).await.unwrap();
-        assert!(!db.transition_job("a", &row.id, 1, S::Accepted, E::Start).await.unwrap());
+        assert!(
+            !db.transition_job("b", &row.id, 1, S::Queued, E::Dispatch)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !db.transition_job("a", &row.id, 2, S::Queued, E::Dispatch)
+                .await
+                .unwrap()
+        );
+        assert!(
+            db.transition_job("a", &row.id, 1, S::Queued, E::Dispatch)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !db.transition_job("a", &row.id, 1, S::Queued, E::Cancel)
+                .await
+                .unwrap()
+        );
+        assert!(
+            db.transition_job("a", &row.id, 1, S::Dispatched, E::Accept)
+                .await
+                .unwrap()
+        );
+        db.transition_device(
+            "a",
+            crate::device_lifecycle::Target::Revoked,
+            &crate::management::auth::authentication::Principal::local(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            !db.transition_job("a", &row.id, 1, S::Accepted, E::Start)
+                .await
+                .unwrap()
+        );
         assert!(db.create_job(&job).await.is_err());
-        assert_eq!(db.list_device_jobs("a").await.unwrap()[0].state, S::Accepted.proto_value());
+        assert_eq!(
+            db.list_device_jobs("a").await.unwrap()[0].state,
+            S::Accepted.proto_value()
+        );
         assert!(db.list_device_jobs("b").await.unwrap().is_empty());
     }
 

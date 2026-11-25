@@ -1696,8 +1696,14 @@ pub fn parse_controller(contents: &str) -> anyhow::Result<ControllerConfig> {
         ControllerAdminAccess::Authenticated(admin) => validate_admin_authenticated(admin)?,
     }
     if let Some(catalog) = &config.agent_catalog {
-        anyhow::ensure!(!catalog.path.as_os_str().is_empty(), "agentCatalog.path cannot be empty");
-        anyhow::ensure!(!catalog.public_keys.is_empty(), "agentCatalog.publicKeys cannot be empty");
+        anyhow::ensure!(
+            !catalog.path.as_os_str().is_empty(),
+            "agentCatalog.path cannot be empty"
+        );
+        anyhow::ensure!(
+            !catalog.public_keys.is_empty(),
+            "agentCatalog.publicKeys cannot be empty"
+        );
         crate::catalog::validate_public_keys(&catalog.public_keys)?;
     }
     let oidc = &config.oidc;
@@ -1892,8 +1898,10 @@ fn parse_local_daemon(contents: &str) -> anyhow::Result<DaemonConfig> {
     }
     if let Some(startup) = &config.daemon {
         crate::catalog::validate_public_keys(&startup.catalog_public_keys)?;
-        anyhow::ensure!(startup.catalog_public_keys.is_empty() || config.controller.is_some(),
-            "daemon.catalogPublicKeys requires a controller");
+        anyhow::ensure!(
+            startup.catalog_public_keys.is_empty() || config.controller.is_some(),
+            "daemon.catalogPublicKeys requires a controller"
+        );
     }
     if config.inventory_interval.is_zero() {
         anyhow::bail!("inventoryInterval must be greater than zero");
@@ -3468,7 +3476,15 @@ mod codex_requirements_tests {
         let absent = parse_daemon("programs: { codex: {} }").unwrap();
         assert!(absent.programs.codex.unwrap().requirements.is_none());
         let retire = parse_daemon("programs: { codex: { requirements: {} } }").unwrap();
-        assert!(retire.programs.codex.unwrap().requirements.unwrap().is_empty());
+        assert!(
+            retire
+                .programs
+                .codex
+                .unwrap()
+                .requirements
+                .unwrap()
+                .is_empty()
+        );
         let configured = parse_daemon(
             "programs: { codex: { requirements: { allowed_approval_policies: [on-request] } } }",
         )

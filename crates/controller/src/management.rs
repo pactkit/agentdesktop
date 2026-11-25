@@ -35,8 +35,8 @@ use auth::{
     authorization::{self, AccessRequest, Verb},
 };
 use handlers::{
-    api_not_found, daemon_config, delete_device, device, device_audit, device_jobs, device_lifecycle, devices, overview,
-    retire_device, revoke_device, settings, usage_report,
+    api_not_found, daemon_config, delete_device, device, device_audit, device_jobs,
+    device_lifecycle, devices, overview, retire_device, revoke_device, settings, usage_report,
 };
 
 /// Embedded UI file lookup by path, e.g. `|path| Assets::get(path).map(|file| file.data)`.
@@ -186,11 +186,20 @@ pub fn router(
             "/api/v1/devices/{device_id}",
             api(get(device).delete(delete_device)),
         )
-        .route("/api/v1/devices/{device_id}/lifecycle", api(get(device_lifecycle)))
+        .route(
+            "/api/v1/devices/{device_id}/lifecycle",
+            api(get(device_lifecycle)),
+        )
         .route("/api/v1/devices/{device_id}/audit", api(get(device_audit)))
         .route("/api/v1/devices/{device_id}/jobs", api(get(device_jobs)))
-        .route("/api/v1/devices/{device_id}/retire", api(post(retire_device)))
-        .route("/api/v1/devices/{device_id}/revoke", api(post(revoke_device)))
+        .route(
+            "/api/v1/devices/{device_id}/retire",
+            api(post(retire_device)),
+        )
+        .route(
+            "/api/v1/devices/{device_id}/revoke",
+            api(post(revoke_device)),
+        )
         .route("/api/v1/settings", api(get(settings)))
         .route("/api/v1/usage", api(get(usage_report)))
         .route("/api", auth.authenticate_api(get(api_not_found)))
