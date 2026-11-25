@@ -11,6 +11,7 @@ use agentdesktop_core::{
 
 use crate::reconcile::ReconcilePlan;
 
+pub mod capabilities;
 pub mod claude_code;
 pub mod claude_desktop;
 pub mod codex;
