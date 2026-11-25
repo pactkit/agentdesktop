@@ -214,3 +214,12 @@ export interface CatalogJobRequest {
   catalogRevision: number;
   catalogSha256: string;
 }
+
+export interface AssistantStatus {
+  enabled: boolean;
+  model: string | null;
+}
+
+export interface AssistantAnswer {
+  text: string;
+}

@@ -1,8 +1,9 @@
 import { CardHeader } from "@agentdesktop/ui";
 import { useEffect, useState } from "react";
 
-import { getCatalogJobs } from "../backend";
+import { askAssistant, getAssistantStatus, getCatalogJobs } from "../backend";
 import type {
+  AssistantStatus,
   CatalogJobsView,
   ConnectorSnapshot,
   Discovery,
@@ -89,20 +90,43 @@ export function AssistantView({ connector, discovery, enrollment, onNavigate }: 
 }) {
   const [jobs, setJobs] = useState<CatalogJobsView | null>(null);
   const [jobError, setJobError] = useState(false);
+  const [assistant, setAssistant] = useState<AssistantStatus | null>(null);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   useEffect(() => {
     let active = true;
     getCatalogJobs().then(
       (result) => { if (active) setJobs(result); },
       () => { if (active) setJobError(true); },
     );
+    getAssistantStatus().then(
+      (result) => { if (active) setAssistant(result); },
+      () => { if (active) setAssistant(null); },
+    );
     return () => { active = false; };
   }, []);
   const findings = diagnose(connector, discovery, enrollment, jobs);
+  async function ask() {
+    if (asking || !assistant?.enabled || !question.trim()) return;
+    setAsking(true);
+    setAskError(null);
+    setAnswer(null);
+    try {
+      const result = await askAssistant(question.trim());
+      setAnswer(result.text);
+    } catch (error) {
+      setAskError(String(error));
+    } finally {
+      setAsking(false);
+    }
+  }
   return (
     <div className="page-stack">
       <div className="page-heading"><div>
         <h2>Local troubleshooting assistant</h2>
-        <p>Read-only guidance from daemon, enrollment, inventory and job state. No external model is invoked.</p>
+        <p>Read-only local findings, with optional questions to an organization-authorized model.</p>
       </div></div>
       {jobError ? <div className="notice notice-error">Job diagnostics unavailable. Connection and inventory checks are still shown.</div> : null}
       <section className="card">
@@ -113,6 +137,22 @@ export function AssistantView({ connector, discovery, enrollment, onNavigate }: 
             <button type="button" onClick={() => onNavigate(finding.next)}>Review</button>
           </div>
         )) : <p>No issue detected in the available status. This is not a complete runtime or policy attestation.</p>}
+      </section>
+      <section className="card">
+        <CardHeader title="Ask managed model" description={assistant?.enabled ? assistant.model ?? "Managed model" : "Disabled or unavailable"} />
+        {assistant?.enabled ? (
+          <>
+            <p>Submitting sends your question and coarse status counts to the organization's gateway. Do not include credentials, personal data or proprietary content. The model cannot execute actions.</p>
+            <label htmlFor="assistant-question">Question</label>
+            <textarea id="assistant-question" value={question} maxLength={2048}
+              onChange={(event) => setQuestion(event.target.value)} disabled={asking} />
+            <button type="button" disabled={asking || !question.trim()} onClick={() => void ask()}>
+              {asking ? "Requesting…" : "Ask model"}
+            </button>
+            {askError ? <div className="notice notice-error" role="alert">{askError}</div> : null}
+            {answer ? <div role="status" style={{ whiteSpace: "pre-wrap" }}>{answer}</div> : null}
+          </>
+        ) : <p>An administrator must provision a local assistant model and allow the dedicated gateway client.</p>}
       </section>
     </div>
   );

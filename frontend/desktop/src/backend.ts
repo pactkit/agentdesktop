@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type {
+  AssistantAnswer,
+  AssistantStatus,
   Bootstrap,
   CatalogJobRequest,
   CatalogJobsView,
@@ -71,4 +73,12 @@ export async function requestCatalogJob(
   input: CatalogJobRequest,
 ): Promise<string> {
   return invoke<string>("request_catalog_job", { input });
+}
+
+export async function getAssistantStatus(): Promise<AssistantStatus> {
+  return invoke<AssistantStatus>("get_assistant_status");
+}
+
+export async function askAssistant(question: string): Promise<AssistantAnswer> {
+  return invoke<AssistantAnswer>("ask_assistant", { input: { question } });
 }
