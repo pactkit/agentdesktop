@@ -2093,6 +2093,7 @@ mod tests {
             heartbeat_interval: Duration::from_secs(30),
             device_authorization: false,
             enrollment_token_path: None,
+            replace_device_id: None,
         };
         (directory, controller)
     }

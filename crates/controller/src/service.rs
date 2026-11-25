@@ -46,6 +46,7 @@ pub struct FleetAgentService {
     device_certificate_issuer: Option<DeviceCertificateIssuer>,
     usage_enabled: bool,
     catalog: CatalogStore,
+    max_devices_per_user: Option<u32>,
     enrollment: EnrollmentLimiter,
     device_streams: DeviceStreams,
 }
@@ -71,6 +72,7 @@ impl FleetAgentService {
             device_certificate_issuer,
             usage_enabled: false,
             catalog: CatalogStore::empty(),
+            max_devices_per_user: None,
             enrollment: EnrollmentLimiter::new(limits),
             device_streams: DeviceStreams::new(limits),
         }
@@ -84,6 +86,11 @@ impl FleetAgentService {
 
     pub fn with_catalog(mut self, catalog: CatalogStore) -> Self {
         self.catalog = catalog;
+        self
+    }
+
+    pub fn with_device_limit(mut self, limit: Option<u32>) -> Self {
+        self.max_devices_per_user = limit;
         self
     }
 
@@ -151,7 +158,18 @@ impl FleetAgent for FleetAgentService {
             }
             None => return Err(Status::invalid_argument("missing enrollment credential")),
         };
-        self.issue_enrolled_device(&completed, &csr_der).await
+        let previous = metadata.get("x-agentdesktop-replaces-device")
+            .map(|value| value.to_str().map_err(|_| Status::invalid_argument("invalid replacement identity")))
+            .transpose()?;
+        if let Some(previous) = previous {
+            if Uuid::parse_str(previous).is_err() {
+                return Err(Status::invalid_argument("invalid replacement identity"));
+            }
+            if !matches!(&completed.credential, EnrollmentCredential::User(_)) {
+                return Err(Status::permission_denied("token enrollment cannot replace a device"));
+            }
+        }
+        self.issue_enrolled_device(&completed, &csr_der, previous).await
     }
 
     async fn renew_device_certificate(
@@ -604,6 +622,7 @@ impl FleetAgentService {
         &self,
         completed: &CompletedEnrollment,
         csr_der: &[u8],
+        previous: Option<&str>,
     ) -> Result<Response<EnrollResponse>, Status> {
         let device_id = match &completed.credential {
             EnrollmentCredential::User(user) => {
@@ -621,6 +640,12 @@ impl FleetAgentService {
             .await
             .map_err(enrollment_storage_error)?
         {
+            if let Some(previous) = previous {
+                let lifecycle = self.database.device_lifecycle(&device_id).await.map_err(internal)?;
+                if lifecycle.and_then(|device| device.replaces_device_id).as_deref() != Some(previous) {
+                    return Err(Status::failed_precondition("enrollment retry has a different replacement identity"));
+                }
+            }
             return Ok(Response::new(response));
         }
         let issued_certificate = self
@@ -631,7 +656,7 @@ impl FleetAgentService {
             .map_err(invalid_csr)?;
         let response = self
             .database
-            .finish_enrollment(
+            .finish_enrollment_with_policy(
                 completed,
                 &EnrollResponse {
                     device_id: device_id.clone(),
@@ -639,6 +664,8 @@ impl FleetAgentService {
                     client_certificate_expires_at_unix_seconds: issued_certificate
                         .expires_at_unix_seconds,
                 },
+                self.max_devices_per_user,
+                previous,
             )
             .await
             .map_err(enrollment_storage_error)?;
@@ -829,6 +856,9 @@ fn bearer_credential(metadata: &tonic::metadata::MetadataMap) -> Result<&str, St
 }
 
 fn enrollment_storage_error(err: anyhow::Error) -> Status {
+    if let Some(denied) = err.downcast_ref::<crate::device_lifecycle::EnrollmentPolicyDenied>() {
+        return Status::failed_precondition(denied.0);
+    }
     if err.is::<crate::device_lifecycle::InactiveDevice>() {
         Status::permission_denied("device is no longer active")
     } else {

@@ -135,6 +135,7 @@ pub async fn run(
         &limits,
     )
     .with_catalog(catalog)
+    .with_device_limit(config.max_devices_per_user)
     .with_enrollment_tokens(enrollment_tokens)
     .with_usage_collection(usage_ingest.is_some());
 

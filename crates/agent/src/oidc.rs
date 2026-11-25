@@ -309,7 +309,8 @@ pub async fn enroll(
         browser_login(&config, enrollment, callback_listen, open_browser, &nonce).await?
     };
     enrollment.set("enrolling").await;
-    complete_enrollment(&mut client, config, &device_key, &csr, tokens).await
+    complete_enrollment(&mut client, config, &device_key, &csr, tokens,
+        controller.replace_device_id.as_deref()).await
 }
 
 /// Enrolls with the operator-signed token at `token_path`; no user signs in.
@@ -478,6 +479,7 @@ async fn complete_enrollment(
     device_key: &KeyPair,
     csr: &CertificateSigningRequest,
     tokens: TokenResponse,
+    previous: Option<&str>,
 ) -> anyhow::Result<Identity> {
     let login_started = unix_time_seconds();
     let id_token = tokens
@@ -502,6 +504,10 @@ async fn complete_enrollment(
         request
             .metadata_mut()
             .insert("authorization", authorization.clone());
+        if let Some(previous) = previous {
+            request.metadata_mut().insert("x-agentdesktop-replaces-device",
+                previous.parse().context("encode replacement device identity")?);
+        }
         request.set_timeout(Duration::from_secs(15));
         match client.enroll_device(request).await {
             Ok(response) => break response.into_inner(),
@@ -1278,6 +1284,7 @@ mod tests {
                 heartbeat_interval: Duration::from_secs(30),
                 device_authorization: headless,
                 enrollment_token_path: None,
+                replace_device_id: None,
             };
             let enrollment = crate::enrollment::EnrollmentState::new(true);
             let mut pending = Box::pin(super::enroll(&controller, &enrollment, None, false));
@@ -1392,6 +1399,7 @@ mod tests {
             heartbeat_interval: Duration::from_secs(30),
             device_authorization: false,
             enrollment_token_path: Some(token_path.clone()),
+                replace_device_id: None,
         };
         let enrollment = crate::enrollment::EnrollmentState::new(true);
 

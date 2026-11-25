@@ -17,6 +17,15 @@ impl fmt::Display for InactiveDevice {
 }
 impl std::error::Error for InactiveDevice {}
 
+#[derive(Debug)]
+pub(crate) struct EnrollmentPolicyDenied(pub &'static str);
+impl fmt::Display for EnrollmentPolicyDenied {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for EnrollmentPolicyDenied {}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub(crate) struct DeviceLifecycle {
     pub state: String,
