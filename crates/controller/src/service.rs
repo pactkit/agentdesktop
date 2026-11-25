@@ -3,6 +3,7 @@ use std::{ops::ControlFlow, pin::Pin, time::Duration};
 use agentdesktop_proto::fleet::{
     AgentMessage, ConfigStatus, ControllerMessage, DaemonConfig, DeviceCertificateResponse,
     DeviceUsageRequest, DeviceUsageResponse, EnrollDeviceRequest, EnrollResponse,
+    ExchangeAgentJobRequest, ExchangeAgentJobResponse, exchange_agent_job_request,
     GetAgentCatalogRequest, GetAgentCatalogResponse, LlmGatewayCredentialRequest,
     LlmGatewayCredentialResponse, LoginConfiguration, LoginConfigurationRequest,
     RenewDeviceCertificateRequest, agent_message, controller_message,
@@ -312,6 +313,55 @@ impl FleetAgent for FleetAgentService {
                 snapshot.signed_catalog_json.clone()
             },
         }))
+    }
+
+    async fn exchange_agent_job(
+        &self,
+        request: Request<ExchangeAgentJobRequest>,
+    ) -> Result<Response<ExchangeAgentJobResponse>, Status> {
+        use exchange_agent_job_request::Operation;
+        let device_id = self.authenticate_device(&request).await?;
+        let operation = request.into_inner().operation
+            .ok_or_else(|| Status::invalid_argument("missing job operation"))?;
+        // Result delivery remains possible even if the catalog has expired.
+        if let Operation::Report(status) = &operation {
+            if status.job_id.len() > 128 || status.attempt == 0 {
+                return Err(Status::invalid_argument("invalid job report"));
+            }
+            let acknowledged = self.database.report_catalog_job(&device_id, status)
+                .await.map_err(internal)?;
+            return Ok(Response::new(ExchangeAgentJobResponse { job: None, acknowledged }));
+        }
+        let snapshot = self.catalog.current()
+            .ok_or_else(|| Status::failed_precondition("no agent catalog configured"))?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Status::internal("invalid controller clock"))?.as_secs();
+        if snapshot.catalog.is_expired(now) || snapshot.catalog.created_at > now {
+            return Err(Status::failed_precondition("agent catalog not currently valid"));
+        }
+        let revision = i64::try_from(snapshot.catalog.revision)
+            .map_err(|_| Status::failed_precondition("catalog revision out of range"))?;
+        let reply = match operation {
+            Operation::Poll(true) => ExchangeAgentJobResponse {
+                job: self.database.claim_catalog_job(&device_id, &snapshot.catalog.catalog_id,
+                    revision, &snapshot.sha256).await.map_err(internal)?.map(|job| job.to_proto()),
+                acknowledged: true,
+            },
+            Operation::Start(start) => {
+                if start.job_id.len() > 128 || start.attempt == 0 {
+                    return Err(Status::invalid_argument("invalid start request"));
+                }
+                ExchangeAgentJobResponse {
+                    job: None,
+                    acknowledged: self.database.authorize_catalog_job(
+                        &device_id, &start.job_id, start.attempt, &snapshot.catalog.catalog_id,
+                        revision, &snapshot.sha256,
+                    ).await.map_err(internal)?,
+                }
+            }
+            _ => return Err(Status::invalid_argument("invalid job operation")),
+        };
+        Ok(Response::new(reply))
     }
 
     async fn connect(

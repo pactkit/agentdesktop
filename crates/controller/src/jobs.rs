@@ -670,6 +670,43 @@ mod tests {
         assert!(db.list_device_jobs("b").await.unwrap().is_empty());
     }
 
+    #[tokio::test]
+    async fn dispatch_is_device_bound_and_start_is_not_replayed() {
+        use super::*;
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::connect(&format!(
+            "sqlite://{}?mode=rwc", dir.path().join("dispatch.db").display()
+        )).await.unwrap();
+        for id in ["a", "b"] {
+            db.enroll_device(id, "host", "issuer", "subject", None).await.unwrap();
+        }
+        let hash = "a".repeat(64);
+        let row = db.create_job(&NewJob {
+            device_id: "a".into(), idempotency_key: "key".into(),
+            origin: "admin".into(), requested_by: "operator".into(),
+            catalog_id: "test".into(), catalog_revision: 1, catalog_sha256: hash.clone(),
+            agent_id: "codex".into(), version: "1.0".into(), action: JobAction::Install,
+            deadline_unix_seconds: now_seconds().unwrap() + 600,
+        }).await.unwrap();
+        assert!(db.claim_catalog_job("b", "test", 1, &hash).await.unwrap().is_none());
+        assert_eq!(db.claim_catalog_job("a", "test", 1, &hash).await.unwrap().unwrap().id, row.id);
+        assert!(db.claim_catalog_job("a", "test", 1, &hash).await.unwrap().is_none());
+        assert!(!db.authorize_catalog_job("b", &row.id, 1, "test", 1, &hash).await.unwrap());
+        assert!(!db.authorize_catalog_job("a", &row.id, 2, "test", 1, &hash).await.unwrap());
+        assert!(!db.authorize_catalog_job("a", &row.id, 1, "test", 2, &hash).await.unwrap());
+        assert!(db.authorize_catalog_job("a", &row.id, 1, "test", 1, &hash).await.unwrap());
+        assert!(!db.authorize_catalog_job("a", &row.id, 1, "test", 1, &hash).await.unwrap());
+        let mut result = agentdesktop_proto::fleet::JobStatus {
+            job_id: row.id, attempt: 1, state: ProtoJobState::Succeeded as i32,
+            ..Default::default()
+        };
+        assert!(!db.report_catalog_job("b", &result).await.unwrap());
+        assert!(db.report_catalog_job("a", &result).await.unwrap());
+        assert!(db.report_catalog_job("a", &result).await.unwrap());
+        result.state = ProtoJobState::Failed as i32;
+        assert!(!db.report_catalog_job("a", &result).await.unwrap());
+    }
+
     #[test]
     fn the_happy_path_reaches_succeeded() {
         let mut state = S::Queued;

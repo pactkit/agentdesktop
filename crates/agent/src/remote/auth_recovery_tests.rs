@@ -59,6 +59,12 @@ impl FleetAgent for Controller {
     ) -> Reply<GetAgentCatalogResponse> {
         Err(tonic::Status::unimplemented("not used"))
     }
+    async fn exchange_agent_job(
+        &self,
+        _: Request<ExchangeAgentJobRequest>,
+    ) -> Reply<ExchangeAgentJobResponse> {
+        Err(tonic::Status::unimplemented("not used"))
+    }
     type ConnectStream = ReceiverStream<Result<ControllerMessage, tonic::Status>>;
     async fn connect(
         &self,
