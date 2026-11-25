@@ -51,8 +51,10 @@ the native client's precedence and field-specific merge rules determine
 effective requirements. Windows is intentionally inactive for requirements
 until its ACL and registry override are implemented.
 
-For a Unix pilot, provision a root-owned /etc/codex directory with no group
-or other write permission (MDM), then configure the system daemon:
+For a Unix pilot, provision a root-owned /etc/codex directory, traversable
+by employees and with no group or other write permission (MDM). Run the
+system daemon as root with a umask permitting employee read access (022).
+Requirements must not contain secrets. Then configure the system daemon:
 
 ```yaml
 programs:

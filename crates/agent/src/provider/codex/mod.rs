@@ -103,6 +103,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn requirements_are_inactive_in_user_mode_and_leave_defaults_alone() {
+        let config = agentdesktop_core::config::parse_daemon(
+            "programs: { codex: { requirements: { allowed_approval_policies: [on-request] } } }",
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let defaults = dir.path().join("config.toml");
+        std::fs::write(&defaults, "model = \"local-model\"\n").unwrap();
+        let context = ReconcileContext {
+            merge_user_settings: true,
+            user_mode: true,
+            credential_helper: PathBuf::from("agentdesktop"),
+            socket: PathBuf::from("socket"),
+            llm_proxy: None,
+        };
+        let provider = Codex {
+            managed_config_path: defaults.clone(),
+        };
+        let plan = provider.plan(&context, &config).unwrap();
+        assert!(plan.inactive_reason().is_some());
+        plan.apply().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(defaults).unwrap(),
+            "model = \"local-model\"\n"
+        );
+        assert!(!dir.path().join("requirements.toml").exists());
+    }
+
+    #[test]
     fn subscription_can_use_a_system_mode_credential_helper() {
         let config = agentdesktop_core::config::parse_daemon(
             "llmGateway:\n  url: https://gateway.example.com\n  proxyUrl: https://gateway.example.com/codex\n  authentication:\n    type: controllerJwt\n    audience: gateway\n    allowedClientIds: [codex]\nprograms:\n  codex:\n    auth: subscription\n",

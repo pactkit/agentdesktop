@@ -42,18 +42,30 @@ pub(super) fn plan_system(
         let metadata = fs::metadata(directory)
             .with_context(|| format!("inspect requirements directory {}", directory.display()))?;
         ensure!(
-            metadata.is_dir() && metadata.uid() == 0 && metadata.permissions().mode() & 0o022 == 0,
+            metadata.is_dir()
+                && metadata.uid() == 0
+                && metadata.permissions().mode() & 0o022 == 0
+                && metadata.permissions().mode() & 0o001 != 0,
             "untrusted requirements directory {}",
             directory.display()
         );
     }
     let path = resolved.join("requirements.toml");
     match fs::symlink_metadata(&path) {
-        Ok(metadata) => ensure!(
-            metadata.is_file() && metadata.uid() == 0 && metadata.permissions().mode() & 0o022 == 0,
-            "untrusted requirements file {}",
-            path.display()
-        ),
+        Ok(metadata) => {
+            ensure!(
+                metadata.is_file()
+                    && metadata.uid() == 0
+                    && metadata.permissions().mode() & 0o022 == 0,
+                "untrusted requirements file {}",
+                path.display()
+            );
+            ensure!(
+                values.is_empty() || metadata.permissions().mode() & 0o004 != 0,
+                "requirements must be readable by employees; correct file mode at {}",
+                path.display()
+            );
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("inspect Codex requirements file"),
     }
@@ -136,7 +148,7 @@ mod tests {
 
         let unchanged = ReconcilePlan::default();
         plan_file(&path, &desired, &unchanged).unwrap();
-        assert!(unchanged.render().contains("UNCHANGED"));
+        assert!(unchanged.render().contains("0 changes, 1 unchanged"));
         unchanged.apply().unwrap();
 
         let mut changed = desired;
